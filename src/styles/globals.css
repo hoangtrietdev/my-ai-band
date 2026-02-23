@@ -1,26 +1,311 @@
+@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import "tailwindcss";
 
+/* ─── RetroUI Design Tokens (Dark Hacker Edition) ─────────────────────────── */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* NeoBrutalism base */
+  --radius: 0;
+
+  /* Colors */
+  --background:               #0a0a0a;
+  --foreground:               #f0f0f0;
+  --card:                     #111111;
+  --card-foreground:          #f0f0f0;
+
+  /* Primary = electric blue */
+  --primary:                  #60a5fa;
+  --primary-hover:            #93c5fd;
+  --primary-foreground:       #000000;
+
+  /* Secondary = near-black */
+  --secondary:                #0f172a;
+  --secondary-foreground:     #f0f0f0;
+
+  --muted:                    #1e293b;
+  --muted-foreground:         #64748b;
+
+  --accent:                   #60a5fa;
+  --accent-foreground:        #000000;
+
+  --destructive:              #f87171;
+  --destructive-foreground:   #000000;
+
+  /* Border = blue for panels, black for button shadows */
+  --border:                   #60a5fa;
+  --border-dark:              #000000;
+
+  /* RetroUI hard-offset shadows */
+  --shadow-xs:  1px 1px 0 0 var(--border);
+  --shadow-sm:  2px 2px 0 0 var(--border);
+  --shadow:     3px 3px 0 0 var(--border);
+  --shadow-md:  4px 4px 0 0 var(--border);
+  --shadow-lg:  6px 6px 0 0 var(--border);
+  --shadow-xl: 10px 10px 0 0 var(--border);
+
+  /* Button hard shadows (use black like RetroUI default) */
+  --btn-shadow:       4px 4px 0 0 #000000;
+  --btn-shadow-hover: 6px 6px 0 0 #000000;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-head: 'Archivo Black', 'Arial Black', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --radius:    var(--radius);
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow:    var(--shadow);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+
+  --color-background:            var(--background);
+  --color-foreground:            var(--foreground);
+  --color-card:                  var(--card);
+  --color-card-foreground:       var(--card-foreground);
+  --color-primary:               var(--primary);
+  --color-primary-foreground:    var(--primary-foreground);
+  --color-secondary:             var(--secondary);
+  --color-secondary-foreground:  var(--secondary-foreground);
+  --color-muted:                 var(--muted);
+  --color-muted-foreground:      var(--muted-foreground);
+  --color-accent:                var(--accent);
+  --color-accent-foreground:     var(--accent-foreground);
+  --color-destructive:           var(--destructive);
+  --color-border:                var(--border);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* ─── Base ─────────────────────────────────────────────────────────────────── */
 
-body {
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'JetBrains Mono', monospace;
+  -webkit-font-smoothing: antialiased;
 }
+
+/* Heading font */
+h1, h2, h3 {
+  font-family: 'Archivo Black', sans-serif;
+}
+
+/* ─── RetroUI Scrollbar ────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: #0a0a0a; border-left: 2px solid #60a5fa; }
+::-webkit-scrollbar-thumb  { background: #60a5fa; }
+::-webkit-scrollbar-thumb:hover { background: #93c5fd; }
+
+/* ─── RetroUI Component Primitives ────────────────────────────────────────── */
+
+/* Retro panel (card) */
+.retro-panel {
+  background: var(--card);
+  border: 2px solid var(--border);
+  box-shadow: var(--shadow-md);
+  border-radius: 0;
+}
+
+/* Retro panel header strip */
+.retro-panel-header {
+  background: var(--secondary);
+  border-bottom: 2px solid var(--border);
+  padding: 6px 12px;
+}
+
+/* Retro button base */
+.retro-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 2px solid #000;
+  box-shadow: var(--btn-shadow);
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 80ms ease, box-shadow 80ms ease;
+  border-radius: 0;
+}
+.retro-btn:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: var(--btn-shadow-hover);
+}
+.retro-btn:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: none;
+}
+.retro-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Retro green primary button */
+.retro-btn-primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+/* Retro red danger button */
+.retro-btn-danger {
+  background: var(--destructive);
+  color: var(--destructive-foreground);
+}
+
+/* Retro ghost/outline button */
+.retro-btn-ghost {
+  background: transparent;
+  color: var(--primary);
+  border-color: var(--border);
+  box-shadow: var(--shadow-md);
+}
+.retro-btn-ghost:hover:not(:disabled) {
+  background: #0c1a2e;
+}
+
+/* Retro input */
+.retro-input {
+  background: var(--background);
+  border: 2px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  color: var(--primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  padding: 6px 10px;
+  border-radius: 0;
+  outline: none;
+  width: 100%;
+}
+.retro-input:focus {
+  box-shadow: var(--shadow-md);
+}
+.retro-input::placeholder {
+  color: var(--muted-foreground);
+}
+
+/* Retro badge */
+.retro-badge {
+  border: 2px solid currentColor;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  padding: 2px 8px;
+  border-radius: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ─── Animations ───────────────────────────────────────────────────────────── */
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.cursor-blink { animation: blink 1s step-end infinite; }
+
+@keyframes scanline {
+  0%   { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+.scanlines::after {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: rgba(96, 165, 250, 0.04);
+  animation: scanline 8s linear infinite;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 4px 4px 0 0 #000; }
+  50%       { box-shadow: 4px 4px 0 0 #f87171; }
+}
+.animate-pulse-red { animation: pulse-red 1s ease-in-out infinite; }
+
+/* ─── Range Slider (RetroUI style) ────────────────────────────────────────── */
+
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: var(--muted);
+  border: 2px solid var(--border);
+  border-radius: 0;
+  outline: none;
+  box-shadow: var(--shadow-xs);
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  background: var(--primary);
+  border: 2px solid #000;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 0 #000;
+}
+input[type='range']::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  background: var(--primary);
+  border: 2px solid #000;
+  cursor: pointer;
+}
+
+/* ─── Progress Bar ─────────────────────────────────────────────────────────── */
+
+.retro-progress-track {
+  height: 8px;
+  background: var(--muted);
+  border: 2px solid var(--border);
+  box-shadow: var(--shadow-xs);
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.retro-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  transition: width 400ms ease;
+}
+
+.retro-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.retro-step-dot {
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  flex-shrink: 0;
+}
+
+.retro-step-dot.active  { background: var(--primary); border-color: var(--primary); }
+.retro-step-dot.done    { background: var(--primary); border-color: var(--primary); }
+.retro-step-dot.pending { background: transparent; border-color: var(--muted-foreground); }
+
+/* ─── Canvas ───────────────────────────────────────────────────────────────── */
+
+canvas { display: block; }
+
