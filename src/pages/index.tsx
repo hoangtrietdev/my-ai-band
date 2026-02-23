@@ -176,7 +176,15 @@ export default function Home() {
           }
         }
 
-        if (!resultMidi) throw new Error('No MIDI data received from API');
+        if (!resultMidi) {
+          const debugLog = localLogs.length > 0 ? `\n\nRecent logs:\n${localLogs.slice(-8).join('\n')}` : '';
+          throw new Error(
+            'No MIDI data received from API.\n' +
+            'This usually means the AI backend failed to generate valid output.\n' +
+            'Check your Digital Ocean API key, model name, and server logs for details.' +
+            debugLog
+          );
+        }
         finalMidiData = resultMidi;
       }
 

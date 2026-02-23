@@ -39,7 +39,8 @@ export default function StudioPanel({
   const canvasRef   = useRef<HTMLCanvasElement>(null);
   const rafRef      = useRef<number | null>(null);
 
-  const drawWaveform = useCallback(() => {
+
+  function drawWaveform() {
     const canvas = canvasRef.current;
     if (!canvas || !analyserNode) return;
 
@@ -75,7 +76,7 @@ export default function StudioPanel({
     ctx.stroke();
 
     rafRef.current = requestAnimationFrame(drawWaveform);
-  }, [analyserNode]);
+  }
 
   // Start/stop waveform animation based on recording state
   useEffect(() => {

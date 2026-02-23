@@ -149,12 +149,29 @@ export async function scheduleBand(midiData: MidiData): Promise<void> {
   if (!bassSynth) return;
 
   // ── Bass Part (Tone.Part handles duplicate / unordered times safely) ───────
-  const bassEvents = midiData.bass.map((note) => ({
-    time:     `${note.bar - 1}:${note.beat - 1}:0`,
-    note:     note.note,
+  let bassEvents = midiData.bass.map((note) => ({
+    time: `${note.bar - 1}:${note.beat - 1}:0`,
+    note: note.note,
     duration: note.duration,
     velocity: note.velocity / 127,
   }));
+
+  // Sort by time (bar, beat)
+  bassEvents.sort((a, b) => {
+    const [abar, abeat, asix] = a.time.split(":").map(x => Number(x) || 0);
+    const [bbar, bbeat, bsix] = b.time.split(":").map(x => Number(x) || 0);
+    if (abar !== bbar) return abar - bbar;
+    if (abeat !== bbeat) return abeat - bbeat;
+    return asix - bsix;
+  });
+
+  // Remove duplicate times (keep first occurrence)
+  const seenTimes = new Set();
+  bassEvents = bassEvents.filter(ev => {
+    if (seenTimes.has(ev.time)) return false;
+    seenTimes.add(ev.time);
+    return true;
+  });
 
   _bassPart = new Tone.Part(
     (t: number, ev: { note: string; duration: string; velocity: number }) => {
