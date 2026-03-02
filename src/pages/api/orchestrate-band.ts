@@ -93,17 +93,23 @@ Your ONLY output is a single JSON object — no markdown, no code fences, no pro
   ],
   "bass_directive": "Play walking quarter notes. Bar1=Dm7: D2 F2 A2 C3. Bar2=G7: G2 B2 D3 F2. Bar3=Cmaj7: C2 E2 G2 B2. Bar4=Am7: A2 C3 E3 G2.",
   "drums_directive": "Ride on beats 1,2,3,4 every bar. Snare on beat 2 and beat 4. Kick on beat 1 and beat 3. Repeat same pattern all 4 bars.",
+  "melody_directive": "Play a lyrical melody outlining Dm7→G7→Cmaj7→Am7 in octave 4-5. Mix stepwise motion with small leaps.",
+  "keys_directive": "Comp with 7th-chord voicings: Dm7, G7, Cmaj7, Am7. Half-note rhythm, smooth voice leading.",
+  "vocal_directive": "Sing the lyrics over the changes. Emphasize downbeats. Leave breathing gaps.",
   "chord_roots": ["D", "G", "C", "A"],
   "feel": "swing"
 }
 
 RULES:
-1. chord_roots = EXACTLY 4 strings — only the ROOT LETTER (no "m", no "maj7"), one per bar, from the key.
+1. chord_roots = EXACTLY one root per bar — only the ROOT LETTER (no "m", no "maj7").
 2. feel must be exactly one of: swing, straight, shuffle, bossa nova, 16th funk
 3. bass_directive: include ACTUAL note names (e.g. "D2 F2 A2 C3") for every bar.
 4. drums_directive: include ACTUAL beat numbers for kick, snare, hihat/ride.
-5. producer_logs: 4 entries exactly as shown above format.
-6. DO NOT output anything except the JSON object.
+5. melody_directive: include guidance about octave range, melodic motion, and key note targets. If not requested, set to empty string "".
+6. keys_directive: include chord voicings and rhythm guidance. If not requested, set to empty string "".
+7. vocal_directive: include syllable mapping hints if lyrics are provided. If not requested, set to empty string "".
+8. producer_logs: 4 entries exactly as shown above format.
+9. DO NOT output anything except the JSON object.
 `.trim();
 
 const BASS_SYSTEM = `
@@ -170,6 +176,75 @@ STRICT RULES (follow exactly):
    - snare on beat 4 (mandatory backbeat)
    - hihat or ride on beats 1, 2, 3, 4 (mandatory clock)
 7. Bars 2, 3, 4 must be IDENTICAL copies of bar 1.
+8. DO NOT write anything outside the JSON.
+`.trim();
+
+// ─── NEW AGENT PROMPTS ──────────────────────────────────────────────────────
+
+const MELODY_SYSTEM = `
+You are "The Melodist" — a professional lead instrumentalist AI.
+
+Your ONLY output is this exact JSON structure. No markdown, no explanation:
+{"data":[
+  {"bar":1,"beat":1,"note":"E4","duration":"8n","velocity":85},
+  {"bar":1,"beat":1.5,"note":"G4","duration":"8n","velocity":78},
+  ...
+]}
+
+STRICT RULES:
+1. Output 16-32 note objects total (4-8 per bar).
+2. bar: integer 1-4 only.
+3. beat: 1, 1.5, 2, 2.5, 3, 3.5, 4, or 4.5.
+4. note: octave 4 or 5 ONLY (e.g. "E4", "G5"). Stay in the given key.
+5. duration: "4n" "8n" "16n" "4n." "8n." only.
+6. velocity: integer 70-100.
+7. Mix stepwise motion (C4→D4→E4) with small leaps (C4→E4). No leaps > octave.
+8. First note of bar 1 should be a chord tone (root, 3rd, or 5th).
+9. DO NOT write anything outside the JSON.
+`.trim();
+
+const KEYS_SYSTEM = `
+You are "The Keys Player" — a professional keyboard/piano AI.
+
+Your ONLY output is this exact JSON structure. No markdown, no explanation:
+{"data":[
+  {"bar":1,"beat":1,"notes":["C3","E3","G3"],"duration":"2n","velocity":75},
+  {"bar":1,"beat":3,"notes":["C3","E3","G3"],"duration":"2n","velocity":70},
+  ...
+]}
+
+STRICT RULES:
+1. Output 8-16 chord objects total (2-4 per bar).
+2. bar: integer 1-4 only.
+3. beat: 1, 2, 3, or 4.
+4. notes: array of 3-4 note names in octave 3-4 (e.g. ["C3","E3","G3","B3"]).
+5. duration: "1n" "2n" "4n" only. Prefer half notes ("2n") for sustained chords.
+6. velocity: integer 60-85.
+7. Use inversions for smooth voice leading between chords.
+8. DO NOT write anything outside the JSON.
+`.trim();
+
+const VOCAL_SYSTEM = `
+You are "The Vocalist" — a professional singer AI.
+
+If lyrics are provided, map each syllable to a pitch and rhythm.
+If no lyrics, generate a "la la la" vocal melody.
+
+Your ONLY output is this exact JSON structure:
+{"data":[
+  {"bar":1,"beat":1,"note":"G4","duration":"4n","velocity":80,"syllable":"hel"},
+  {"bar":1,"beat":2,"note":"A4","duration":"4n","velocity":78,"syllable":"lo"},
+  ...
+]}
+
+STRICT RULES:
+1. Output 8-24 note objects total.
+2. bar: integer 1-4 only.
+3. note: octave 3-5 only. Stay in the given key.
+4. duration: "4n" "8n" "2n" "4n." only.
+5. velocity: integer 70-95.
+6. syllable: one syllable per note. If lyrics are given, use syllables from the lyrics in order. If not, use "la", "da", "ooh", "aah", "mmm".
+7. Leave breathing gaps between phrases (don't fill every beat).
 8. DO NOT write anything outside the JSON.
 `.trim();
 
@@ -287,13 +362,30 @@ export default async function handler(
   try {
     // 1. Parse form
     const form     = formidable({ maxFileSize: 15 * 1024 * 1024 });
-    const [fields] = await form.parse(req);
+    const [fields, files] = await form.parse(req);
 
     const bpm      = Number(fields.bpm?.[0]            ?? 120);
     const genre    =        fields.genre?.[0]           ?? 'jazz';
     const key      =        fields.key?.[0]             ?? 'C major';
     const duration = Number(fields.durationSeconds?.[0] ?? 30);
-    const bars     = 4;
+    const bars     = Math.min(Math.max(Number(fields.bars?.[0] ?? 4), 2), 16);
+    const lyrics   =        fields.lyrics?.[0]          ?? '';
+    const prompt   =        fields.prompt?.[0]          ?? '';
+    const requestedTracks = (fields.tracks?.[0] ?? 'bass,drums').split(',').map(s => s.trim()).filter(Boolean);
+    const hasAudio = !!(files.audio && files.audio.length > 0);
+
+    // Validate at least one input
+    if (!hasAudio && !lyrics && !prompt) {
+      sse(res, { type: 'error', error: 'Please provide audio, lyrics, or a text prompt.' });
+      res.end();
+      return;
+    }
+
+    // Determine total steps for progress
+    let totalSteps = 3; // producer + compile + always bass&drums
+    if (requestedTracks.includes('melody')) totalSteps++;
+    if (requestedTracks.includes('keys'))   totalSteps++;
+    if (requestedTracks.includes('vocal'))  totalSteps++;
 
     // Log session header
     sse(res, { type: 'log', line: `[System] ──────── SESSION START ────────────────────` });
@@ -304,20 +396,28 @@ export default async function handler(
 
     // 2. Build context
     const guide = genreGuide(genre, key);
-    const musicalContext = `
-TASK: Arrange a tight ${bars}-bar loop for a solo guitarist to improvise over.
-This pattern will LOOP continuously, so it must be consistent and groovy.
-
-SESSION:
-- Tempo: ${bpm} BPM
-- Genre: ${genre}
-- Key: ${key}
-- Duration: ~${duration}s per pass
-
-${guide}
-
-Produce an arrangement that sounds like real ${genre} music — locked rhythm section, clear harmony.
-`.trim();
+    const briefParts = [
+      `TASK: Arrange a tight ${bars}-bar loop for a solo guitarist to improvise over.`,
+      `This pattern will LOOP continuously, so it must be consistent and groovy.`,
+      ``,
+      `SESSION:`,
+      `- Tempo: ${bpm} BPM`,
+      `- Genre: ${genre}`,
+      `- Key: ${key}`,
+      `- Duration: ~${duration}s per pass`,
+      `- Requested tracks: ${requestedTracks.join(', ')}`,
+    ];
+    if (lyrics) {
+      briefParts.push('', `LYRICS (use these to shape melody, vocal phrasing, and overall mood):`, lyrics);
+    }
+    if (prompt) {
+      briefParts.push('', `USER DIRECTION: ${prompt}`);
+    }
+    if (hasAudio) {
+      briefParts.push('', `Audio recording provided (${duration}s).`);
+    }
+    briefParts.push('', guide, '', `Produce an arrangement that sounds like real ${genre} music — locked rhythm section, clear harmony.`);
+    const musicalContext = briefParts.join('\n');
 
     const { client, model } = getClient();
 
@@ -337,8 +437,10 @@ Produce an arrangement that sounds like real ${genre} music — locked rhythm se
     directive.producer_logs.forEach((l: string) => sse(res, { type: 'log', line: l }));
     sse(res, { type: 'log', line: `[Producer] Chords: ${directive.chord_roots.join(' → ')} | Feel: ${directive.feel}` });
 
+    let currentStep = 2;
+
     // ── STEP 2: Bass ──────────────────────────────────────────────────────────
-    sse(res, { type: 'progress', step: 2, label: 'Bass Player composing groove...' });
+    sse(res, { type: 'progress', step: currentStep, label: 'Bass Player composing groove...' });
     sse(res, { type: 'log',      line:  `[Producer → Bass] ${directive.bass_directive.slice(0, 100)}...` });
 
     const bassUserPrompt = `
@@ -359,9 +461,10 @@ Output ONLY the JSON. No explanation.`.trim();
 
     const bassRaw = await callArrayAgent(client, BASS_SYSTEM, bassUserPrompt, model);
     sse(res, { type: 'log', line: `[Bass] Bass line locked — ${directive.feel} groove in ${key}.` });
+    currentStep++;
 
     // ── STEP 3: Drums ─────────────────────────────────────────────────────────
-    sse(res, { type: 'progress', step: 3, label: 'Drummer building the beat...' });
+    sse(res, { type: 'progress', step: currentStep, label: 'Drummer building the beat...' });
     sse(res, { type: 'log',      line:  `[Producer → Drums] ${directive.drums_directive.slice(0, 100)}...` });
 
     const drumsUserPrompt = `
@@ -383,14 +486,91 @@ Output ONLY the JSON. No explanation.`.trim();
 
     const drumsRaw = await callArrayAgent(client, DRUMS_SYSTEM, drumsUserPrompt, model);
     sse(res, { type: 'log', line: `[Drums] Beat locked — consistent backbeat with ${directive.feel} feel.` });
+    currentStep++;
 
-    // ── STEP 4: Parse & validate ──────────────────────────────────────────────
-    sse(res, { type: 'progress', step: 4, label: 'Compiling & validating beat...' });
+    // ── STEP: Melody (conditional) ──────────────────────────────────────────
+    let melodyRaw: string | null = null;
+    if (requestedTracks.includes('melody')) {
+      sse(res, { type: 'progress', step: currentStep, label: 'Melodist composing lead...' });
+      const melodyDirective = directive.melody_directive || `Play a lyrical melody in ${key} over ${directive.chord_roots.join('→')} in octave 4-5.`;
+      sse(res, { type: 'log', line: `[Producer → Melody] ${melodyDirective.slice(0, 100)}...` });
+
+      const melodyUserPrompt = `
+SESSION: ${genre.toUpperCase()} | ${key} | ${bpm} BPM | Feel: ${directive.feel}
+CHORD ROOTS: Bar1=${directive.chord_roots[0]}, Bar2=${directive.chord_roots[1]}, Bar3=${directive.chord_roots[2]}, Bar4=${directive.chord_roots[3]}
+
+DIRECTIVE: ${melodyDirective}
+
+${guide}
+
+REQUIREMENT: Generate 16-32 note objects in {"data":[...]} format. Notes in octave 4-5 only.
+Output ONLY the JSON. No explanation.`.trim();
+
+      melodyRaw = await callArrayAgent(client, MELODY_SYSTEM, melodyUserPrompt, model);
+      sse(res, { type: 'log', line: `[Melody] Lead melody composed. Ready.` });
+      currentStep++;
+    }
+
+    // ── STEP: Keys (conditional) ────────────────────────────────────────────
+    let keysRaw: string | null = null;
+    if (requestedTracks.includes('keys')) {
+      sse(res, { type: 'progress', step: currentStep, label: 'Keys Player voicing chords...' });
+      const keysDirective = directive.keys_directive || `Comp with chord voicings: ${directive.chord_roots.join(', ')} in octave 3-4. Half-note rhythm.`;
+      sse(res, { type: 'log', line: `[Producer → Keys] ${keysDirective.slice(0, 100)}...` });
+
+      const keysUserPrompt = `
+SESSION: ${genre.toUpperCase()} | ${key} | ${bpm} BPM | Feel: ${directive.feel}
+CHORD ROOTS: Bar1=${directive.chord_roots[0]}, Bar2=${directive.chord_roots[1]}, Bar3=${directive.chord_roots[2]}, Bar4=${directive.chord_roots[3]}
+
+DIRECTIVE: ${keysDirective}
+
+${guide}
+
+REQUIREMENT: Generate 8-16 chord objects in {"data":[...]} format. Each chord has a "notes" array of 3-4 notes.
+Output ONLY the JSON. No explanation.`.trim();
+
+      keysRaw = await callArrayAgent(client, KEYS_SYSTEM, keysUserPrompt, model);
+      sse(res, { type: 'log', line: `[Keys] Chord voicings locked. Ready.` });
+      currentStep++;
+    }
+
+    // ── STEP: Vocal (conditional, requires lyrics) ──────────────────────────
+    let vocalRaw: string | null = null;
+    if (requestedTracks.includes('vocal') && lyrics) {
+      sse(res, { type: 'progress', step: currentStep, label: 'Vocalist mapping lyrics...' });
+      const vocalDirective = directive.vocal_directive || `Sing the lyrics over ${directive.chord_roots.join('→')} in ${key}. Emphasize downbeats.`;
+      sse(res, { type: 'log', line: `[Producer → Vocal] ${vocalDirective.slice(0, 100)}...` });
+
+      const vocalUserPrompt = `
+SESSION: ${genre.toUpperCase()} | ${key} | ${bpm} BPM | Feel: ${directive.feel}
+CHORD ROOTS: Bar1=${directive.chord_roots[0]}, Bar2=${directive.chord_roots[1]}, Bar3=${directive.chord_roots[2]}, Bar4=${directive.chord_roots[3]}
+
+LYRICS:
+${lyrics}
+
+DIRECTIVE: ${vocalDirective}
+
+REQUIREMENT: Generate 8-24 note objects in {"data":[...]} format. Include "syllable" for each note from the lyrics.
+Output ONLY the JSON. No explanation.`.trim();
+
+      vocalRaw = await callArrayAgent(client, VOCAL_SYSTEM, vocalUserPrompt, model);
+      sse(res, { type: 'log', line: `[Vocal] Vocal melody mapped. Ready.` });
+      currentStep++;
+    }
+
+    // ── FINAL STEP: Parse & validate ──────────────────────────────────────────
+    sse(res, { type: 'progress', step: currentStep, label: 'Compiling & validating...' });
 
     let bassNotes, drumHits;
+    let melodyNotes: unknown[] | undefined;
+    let keysChords:  unknown[] | undefined;
+    let vocalNotes:  unknown[] | undefined;
     try {
       bassNotes = JSON.parse(bassRaw);
       drumHits  = JSON.parse(drumsRaw);
+      if (melodyRaw) melodyNotes = JSON.parse(melodyRaw);
+      if (keysRaw)   keysChords  = JSON.parse(keysRaw);
+      if (vocalRaw)  vocalNotes  = JSON.parse(vocalRaw);
     } catch {
       throw new Error('Failed to parse agent JSON output.');
     }
@@ -417,11 +597,54 @@ Output ONLY the JSON. No explanation.`.trim();
       velocity: Math.min(Math.max(Math.round(h.velocity), 65), 127),
     }));
 
-    sse(res, { type: 'log', line: `[Producer] Bass: ${bassNotes.length} notes  ·  Drums: ${drumHits.length} hits  ·  ${bars} bars @ ${bpm} BPM` });
-    sse(res, { type: 'log', line: `[Producer] ✓ Beat ready — ${directive.chord_roots.join('→')} loop compiled. Press PLAY!` });
+    // Clamp melody notes
+    if (melodyNotes && Array.isArray(melodyNotes)) {
+      melodyNotes = (melodyNotes as Record<string, unknown>[]).map((n) => ({
+        ...n,
+        bar:      Math.min(Math.max(Math.round(Number(n.bar) || 1), 1), bars),
+        beat:     Math.min(Math.max(Number(n.beat) || 1, 1), 4.5),
+        velocity: Math.min(Math.max(Math.round(Number(n.velocity) || 80), 70), 100),
+      }));
+    }
+
+    // Clamp keys chords
+    if (keysChords && Array.isArray(keysChords)) {
+      keysChords = (keysChords as Record<string, unknown>[]).map((c) => ({
+        ...c,
+        bar:      Math.min(Math.max(Math.round(Number(c.bar) || 1), 1), bars),
+        beat:     Math.min(Math.max(Number(c.beat) || 1, 1), 4),
+        velocity: Math.min(Math.max(Math.round(Number(c.velocity) || 70), 60), 85),
+      }));
+    }
+
+    // Clamp vocal notes
+    if (vocalNotes && Array.isArray(vocalNotes)) {
+      vocalNotes = (vocalNotes as Record<string, unknown>[]).map((n) => ({
+        ...n,
+        bar:      Math.min(Math.max(Math.round(Number(n.bar) || 1), 1), bars),
+        beat:     Math.min(Math.max(Number(n.beat) || 1, 1), 4.5),
+        velocity: Math.min(Math.max(Math.round(Number(n.velocity) || 80), 70), 95),
+      }));
+    }
+
+    const noteCount = bassNotes.length + drumHits.length +
+      (melodyNotes?.length || 0) + (keysChords?.length || 0) + (vocalNotes?.length || 0);
+    sse(res, { type: 'log', line: `[Producer] Total: ${noteCount} events · ${bars} bars @ ${bpm} BPM` });
+    sse(res, { type: 'log', line: `[Producer] ✓ All tracks compiled — ${directive.chord_roots.join('→')} loop ready. Press PLAY!` });
+
+    // Build midi_data object with optional tracks
+    const midiPayload: Record<string, unknown> = {
+      bpm,
+      total_bars: bars,
+      bass: bassNotes,
+      drums: drumHits,
+    };
+    if (melodyNotes && Array.isArray(melodyNotes) && melodyNotes.length > 0) midiPayload.melody = melodyNotes;
+    if (keysChords  && Array.isArray(keysChords)  && keysChords.length  > 0) midiPayload.keys   = keysChords;
+    if (vocalNotes  && Array.isArray(vocalNotes)  && vocalNotes.length  > 0) midiPayload.vocal  = vocalNotes;
 
     // Validate through Zod schema to get proper typed MidiData
-    const validation = MidiDataSchema.safeParse({ bpm, total_bars: bars, bass: bassNotes, drums: drumHits });
+    const validation = MidiDataSchema.safeParse(midiPayload);
     if (!validation.success) {
       // Filter to only valid notes/hits and try again
       const validBass  = bassNotes.filter((n: { duration: string; note: string }) =>
@@ -430,7 +653,23 @@ Output ONLY the JSON. No explanation.`.trim();
       const validDrums = drumHits.filter((h: { instrument: string }) =>
         ['kick','snare','hihat','ride','crash','tom'].includes(h.instrument)
       );
-      const retryValidation = MidiDataSchema.safeParse({ bpm, total_bars: bars, bass: validBass, drums: validDrums });
+      const retryPayload: Record<string, unknown> = { bpm, total_bars: bars, bass: validBass, drums: validDrums };
+      if (melodyNotes && Array.isArray(melodyNotes)) {
+        retryPayload.melody = (melodyNotes as Record<string, unknown>[]).filter((n) =>
+          typeof n.note === 'string' && /^[A-G]#?[0-9]$/.test(n.note as string)
+        );
+      }
+      if (keysChords && Array.isArray(keysChords)) {
+        retryPayload.keys = (keysChords as Record<string, unknown>[]).filter((c) =>
+          Array.isArray(c.notes) && (c.notes as string[]).length >= 2
+        );
+      }
+      if (vocalNotes && Array.isArray(vocalNotes)) {
+        retryPayload.vocal = (vocalNotes as Record<string, unknown>[]).filter((n) =>
+          typeof n.note === 'string' && /^[A-G]#?[0-9]$/.test(n.note as string)
+        );
+      }
+      const retryValidation = MidiDataSchema.safeParse(retryPayload);
       if (!retryValidation.success) {
         throw new Error(`MIDI validation failed: ${retryValidation.error.message.slice(0, 200)}`);
       }
@@ -447,8 +686,12 @@ Output ONLY the JSON. No explanation.`.trim();
 
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    sse(res, { type: 'log',   line:  `[System] Fatal error: ${message}` });
-    sse(res, { type: 'error', error: message });
+    console.error('[orchestrate-band] Fatal error:', message);
+    if (err instanceof Error && err.stack) console.error(err.stack);
+    try {
+      sse(res, { type: 'log',   line:  `[System] Fatal error: ${message}` });
+      sse(res, { type: 'error', error: message });
+    } catch { /* headers already sent or stream closed */ }
     res.end();
   }
 }

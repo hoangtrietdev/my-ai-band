@@ -2,25 +2,21 @@ import { useState, useCallback } from 'react';
 import Head from 'next/head';
 import dynamic from 'next/dynamic';
 import { useAudioRecorder } from '@/hooks/useAudioRecorder';
-import { MidiData } from '@/lib/schemas';
+import { MidiData, TrackName } from '@/lib/schemas';
 import { AppStatus } from '@/components/StatusBadge';
+import type { InputMode } from '@/components/InputForm';
+import type { TrackState } from '@/components/ProductionBoard';
 
 // Dynamically import heavy/browser-only components to avoid SSR issues
-const StudioPanel       = dynamic(() => import('@/components/StudioPanel'),       { ssr: false });
+const InputForm         = dynamic(() => import('@/components/InputForm'),         { ssr: false });
 const AgentTerminal     = dynamic(() => import('@/components/AgentTerminal'),     { ssr: false });
-const TransportControls = dynamic(() => import('@/components/TransportControls'), { ssr: false });
+const ProductionBoard   = dynamic(() => import('@/components/ProductionBoard'),   { ssr: false });
 const StatusBadge       = dynamic(() => import('@/components/StatusBadge'),       { ssr: false });
 
 // ─── Generation Progress Bar ─────────────────────────────────────────────────
-const GEN_STEPS = [
-  { id: 1, label: 'Producer' },
-  { id: 2, label: 'Bass Player' },
-  { id: 3, label: 'Drummer' },
-  { id: 4, label: 'Compile' },
-];
 
-function GenerationProgress({ step, label }: { step: number; label: string }) {
-  const pct = Math.round((step / GEN_STEPS.length) * 100);
+function GenerationProgress({ step, label, totalSteps }: { step: number; label: string; totalSteps: number }) {
+  const pct = Math.round((step / totalSteps) * 100);
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -32,24 +28,21 @@ function GenerationProgress({ step, label }: { step: number; label: string }) {
       <div className="retro-progress-track">
         <div className="retro-progress-fill" style={{ width: `${pct}%` }} />
       </div>
-      <div className="flex gap-3">
-        {GEN_STEPS.map((s) => (
-          <div key={s.id} className={`retro-step ${
-            s.id < step  ? 'text-primary'  :
-            s.id === step ? 'text-primary animate-pulse' :
-            'text-muted-foreground'
-          }`}>
-            <div className={`retro-step-dot ${
-              s.id < step   ? 'done'    :
-              s.id === step ? 'active'  :
-              'pending'
-            }`} />
-            {s.label}
-          </div>
-        ))}
-      </div>
     </div>
   );
+}
+
+// ─── Default track states ────────────────────────────────────────────────────
+
+function defaultTrackStates(): Record<TrackName, TrackState> {
+  return {
+    guitar: { muted: false, solo: false, volume: 0 },
+    bass:   { muted: false, solo: false, volume: 0 },
+    drums:  { muted: false, solo: false, volume: 0 },
+    melody: { muted: false, solo: false, volume: 0 },
+    keys:   { muted: false, solo: false, volume: 0 },
+    vocal:  { muted: false, solo: false, volume: 0 },
+  };
 }
 
 export default function Home() {
@@ -57,6 +50,15 @@ export default function Home() {
   const [bpm,        setBpm]        = useState(120);
   const [genre,      setGenre]      = useState('jazz');
   const [musicalKey, setMusicalKey] = useState('C major');
+  const [bars,       setBars]       = useState(4);
+
+  // ─── Input mode & content ────────────────────────────────────────────────
+  const [inputMode,      setInputMode]      = useState<InputMode>('record');
+  const [lyrics,         setLyrics]         = useState('');
+  const [prompt,         setPrompt]         = useState('');
+  const [uploadName,     setUploadName]     = useState<string | null>(null);
+  const [uploadBlob,     setUploadBlob]     = useState<Blob | null>(null);
+  const [selectedTracks, setSelectedTracks] = useState<TrackName[]>(['bass', 'drums']);
 
   // ─── App state ───────────────────────────────────────────────────────────
   const [appStatus,   setAppStatus]   = useState<AppStatus>('idle');
@@ -68,12 +70,11 @@ export default function Home() {
   const [streamLogs,  setStreamLogs]  = useState<string[]>([]);
   const [genStep,     setGenStep]     = useState(0);
   const [genLabel,    setGenLabel]    = useState('');
+  const [genTotal,    setGenTotal]    = useState(4);
 
   // ─── Playback state ──────────────────────────────────────────────────────
-  const [isPlaying,    setIsPlaying]    = useState(false);
-  const [guitarVolume, setGuitarVolume] = useState(0);
-  const [bassVolume,   setBassVolume]   = useState(0);
-  const [drumsVolume,  setDrumsVolume]  = useState(0);
+  const [isPlaying,   setIsPlaying]   = useState(false);
+  const [trackStates, setTrackStates] = useState<Record<TrackName, TrackState>>(defaultTrackStates);
 
   // ─── Audio recording ──────────────────────────────────────────────────────
   const {
@@ -88,6 +89,9 @@ export default function Home() {
     analyserNode,
   } = useAudioRecorder();
 
+  // Effective audio — either recorded or uploaded
+  const effectiveAudio = audioBlob || uploadBlob;
+
   // ─── Derived status ───────────────────────────────────────────────────────
   const derivedStatus: AppStatus =
     appStatus !== 'idle'           ? appStatus    :
@@ -96,8 +100,8 @@ export default function Home() {
 
   // ─── Generate Band ────────────────────────────────────────────────────────
   const handleGenerate = useCallback(async () => {
-    if (!audioBlob && !useMock) {
-      setApiError('Please record your guitar first, or enable Mock Mode.');
+    if (!effectiveAudio && !lyrics && !prompt && !useMock) {
+      setApiError('Please record audio, upload a file, enter lyrics, or type a prompt — or enable Mock Mode.');
       return;
     }
 
@@ -108,29 +112,48 @@ export default function Home() {
     setGenLabel('');
     setAppStatus('processing');
 
+    // Calculate total steps
+    let steps = 3; // producer + bass&drums + compile
+    if (selectedTracks.includes('melody')) steps++;
+    if (selectedTracks.includes('keys'))   steps++;
+    if (selectedTracks.includes('vocal'))  steps++;
+    setGenTotal(steps);
+
     try {
       let finalMidiData: MidiData;
 
       if (useMock) {
         const { MOCK_RESPONSE } = await import('@/lib/mockApiResponse');
         setGenStep(1); setGenLabel('Producer analyzing session...');
-        setStreamLogs(prev => [...prev, `[System] BPM: ${bpm}  |  Genre: ${genre.toUpperCase()}  |  Key: ${musicalKey}`]);
+        setStreamLogs(prev => [...prev, `[System] BPM: ${bpm}  |  Genre: ${genre.toUpperCase()}  |  Key: ${musicalKey}  |  Bars: ${bars}`]);
         await new Promise((r) => setTimeout(r, 400));
         setGenStep(2); setGenLabel('Bass Player composing groove...');
         await new Promise((r) => setTimeout(r, 400));
         setGenStep(3); setGenLabel('Drummer building the beat...');
         await new Promise((r) => setTimeout(r, 400));
-        setGenStep(4); setGenLabel('Compiling & validating...');
+        if (selectedTracks.includes('melody')) {
+          setGenStep(4); setGenLabel('Melodist composing lead...');
+          await new Promise((r) => setTimeout(r, 300));
+        }
+        if (selectedTracks.includes('keys')) {
+          setGenStep(steps - 1); setGenLabel('Keys Player voicing chords...');
+          await new Promise((r) => setTimeout(r, 300));
+        }
+        setGenStep(steps); setGenLabel('Compiling & validating...');
         await new Promise((r) => setTimeout(r, 200));
         finalMidiData = MOCK_RESPONSE.midi_data;
         setStreamLogs(MOCK_RESPONSE.logs);
       } else {
         const formData = new FormData();
-        formData.append('audio',           audioBlob!,            'recording.webm');
+        if (effectiveAudio) formData.append('audio', effectiveAudio, 'recording.webm');
+        if (lyrics)         formData.append('lyrics', lyrics);
+        if (prompt)         formData.append('prompt', prompt);
         formData.append('bpm',             String(bpm));
         formData.append('genre',           genre);
         formData.append('key',             musicalKey);
-        formData.append('durationSeconds', String(durationSeconds));
+        formData.append('bars',            String(bars));
+        formData.append('tracks',          selectedTracks.join(','));
+        if (durationSeconds) formData.append('durationSeconds', String(durationSeconds));
 
         const response = await fetch('/api/orchestrate-band', {
           method: 'POST',
@@ -150,28 +173,28 @@ export default function Home() {
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
 
-          // SSE events are separated by \n\n
           const parts = buffer.split('\n\n');
           buffer = parts.pop() ?? '';
 
           for (const part of parts) {
             const line = part.trim();
             if (!line.startsWith('data: ')) continue;
+            let evt: Record<string, unknown>;
             try {
-              const evt = JSON.parse(line.slice(6));
-              if (evt.type === 'log') {
-                localLogs.push(evt.line);
-                setStreamLogs([...localLogs]);
-              } else if (evt.type === 'progress') {
-                setGenStep(evt.step);
-                setGenLabel(evt.label);
-              } else if (evt.type === 'result') {
-                resultMidi = evt.midi_data;
-              } else if (evt.type === 'error') {
-                throw new Error(evt.error);
-              }
-            } catch (parseErr) {
-              // skip malformed events
+              evt = JSON.parse(line.slice(6));
+            } catch {
+              continue; // skip malformed JSON
+            }
+            if (evt.type === 'log') {
+              localLogs.push(evt.line as string);
+              setStreamLogs([...localLogs]);
+            } else if (evt.type === 'progress') {
+              setGenStep(evt.step as number);
+              setGenLabel(evt.label as string);
+            } else if (evt.type === 'result') {
+              resultMidi = evt.midi_data as MidiData;
+            } else if (evt.type === 'error') {
+              throw new Error(evt.error as string);
             }
           }
         }
@@ -181,7 +204,7 @@ export default function Home() {
           throw new Error(
             'No MIDI data received from API.\n' +
             'This usually means the AI backend failed to generate valid output.\n' +
-            'Check your Digital Ocean API key, model name, and server logs for details.' +
+            'Check your API key, model name, and server logs for details.' +
             debugLog
           );
         }
@@ -190,18 +213,18 @@ export default function Home() {
 
       setMidiData(finalMidiData);
       setAppStatus('ready');
-      setGenStep(0); // hide progress bar
+      setGenStep(0);
 
       const { scheduleBand, loadGuitarTrack } = await import('@/lib/toneEngine');
       await scheduleBand(finalMidiData);
-      if (audioBlob) await loadGuitarTrack(audioBlob);
+      if (effectiveAudio) await loadGuitarTrack(effectiveAudio);
 
     } catch (err: unknown) {
       setApiError(err instanceof Error ? err.message : String(err));
       setAppStatus('error');
       setGenStep(0);
     }
-  }, [audioBlob, bpm, genre, musicalKey, durationSeconds, useMock]);
+  }, [effectiveAudio, bpm, genre, musicalKey, bars, durationSeconds, useMock, lyrics, prompt, selectedTracks]);
 
   // ─── Transport handlers ───────────────────────────────────────────────────
   const handlePlay = useCallback(async () => {
@@ -225,14 +248,52 @@ export default function Home() {
     setAppStatus(midiData ? 'ready' : 'idle');
   }, [midiData]);
 
-  // ─── Volume ───────────────────────────────────────────────────────────────
-  const handleVolume = useCallback(async (track: 'guitar' | 'bass' | 'drums', db: number) => {
+  // ─── Track control handlers ───────────────────────────────────────────────
+  const handleVolume = useCallback(async (track: TrackName, db: number) => {
     const { setVolume } = await import('@/lib/toneEngine');
     await setVolume(track, db);
-    if (track === 'guitar') setGuitarVolume(db);
-    if (track === 'bass')   setBassVolume(db);
-    if (track === 'drums')  setDrumsVolume(db);
+    setTrackStates(prev => ({ ...prev, [track]: { ...prev[track], volume: db } }));
   }, []);
+
+  const handleMute = useCallback(async (track: TrackName) => {
+    const newMuted = !trackStates[track].muted;
+    const { setTrackMute } = await import('@/lib/toneEngine');
+    await setTrackMute(track, newMuted);
+    setTrackStates(prev => ({ ...prev, [track]: { ...prev[track], muted: newMuted } }));
+  }, [trackStates]);
+
+  const handleSolo = useCallback(async (track: TrackName) => {
+    const newSolo = !trackStates[track].solo;
+    const { setTrackSolo } = await import('@/lib/toneEngine');
+    await setTrackSolo(track, newSolo);
+    // Update all track states to reflect solo
+    setTrackStates(prev => {
+      const next = { ...prev };
+      if (newSolo) {
+        for (const t of Object.keys(next) as TrackName[]) {
+          next[t] = { ...next[t], solo: t === track, muted: t !== track };
+        }
+      } else {
+        for (const t of Object.keys(next) as TrackName[]) {
+          next[t] = { ...next[t], solo: false, muted: false };
+        }
+      }
+      return next;
+    });
+  }, [trackStates]);
+
+  // ─── Upload handler ───────────────────────────────────────────────────────
+  const handleUpload = useCallback((blob: Blob, name: string) => {
+    setUploadBlob(blob);
+    setUploadName(name);
+  }, []);
+
+  // ─── Export handler ───────────────────────────────────────────────────────
+  const handleExportJson = useCallback(async () => {
+    if (!midiData) return;
+    const { downloadMidiJson } = await import('@/lib/exportHelpers');
+    downloadMidiJson(midiData);
+  }, [midiData]);
 
   const isReady      = appStatus === 'ready' || appStatus === 'playing';
   const isProcessing = appStatus === 'processing';
@@ -242,7 +303,7 @@ export default function Home() {
     <>
       <Head>
         <title>Virtual AI Band</title>
-        <meta name="description" content="AI-powered virtual band — record guitar, get AI accompaniment" />
+        <meta name="description" content="AI-powered virtual band — multi-modal music production with AI" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
@@ -258,17 +319,15 @@ export default function Home() {
             <p className="text-xs text-blue-800 font-mono tracking-wider mt-0.5">
               {process.env.NEXT_PUBLIC_IS_GROQ === 'true'
                 ? 'Powered by Groq · llama-3.3-70b-versatile'
-                : 'Powered by DigitalOcean Gradient'} · Multi-Agent Jazz Ensemble
+                : 'Powered by DigitalOcean Gradient'} · Multi-Agent Production Board
             </p>
           </div>
 
           <div className="flex items-center gap-3">
-            {/* AI backend badge */}
             <span className="retro-badge text-xs font-mono">
               {process.env.NEXT_PUBLIC_IS_GROQ === 'true' ? '⚡ GROQ' : '☁ GRADIENT'}
             </span>
 
-            {/* Mock toggle */}
             <label className="flex items-center gap-2 text-xs font-mono cursor-pointer select-none">
               <div
                 onClick={() => setUseMock((p) => !p)}
@@ -294,11 +353,11 @@ export default function Home() {
         {/* ── Main layout ── */}
         <main className="flex-1 grid md:grid-cols-2 overflow-hidden" style={{ minHeight: 0 }}>
 
-          {/* Left — Studio Panel */}
+          {/* Left — Input Form */}
           <section className="flex flex-col border-r-2 border-border overflow-y-auto p-4 gap-4">
-            <span className="text-xs text-blue-700 tracking-widest font-mono">// STUDIO</span>
+            <span className="text-xs text-blue-700 tracking-widest font-mono">// STUDIO INPUT</span>
 
-            <StudioPanel
+            <InputForm
               recordingState={recordingState}
               durationSeconds={durationSeconds}
               audioUrl={audioUrl}
@@ -306,22 +365,33 @@ export default function Home() {
               bpm={bpm}               setBpm={setBpm}
               genre={genre}           setGenre={setGenre}
               musicalKey={musicalKey} setMusicalKey={setMusicalKey}
-              onStart={startRecording}
-              onStop={stopRecording}
-              onClear={() => {
+              bars={bars}             setBars={setBars}
+              lyrics={lyrics}         setLyrics={setLyrics}
+              prompt={prompt}         setPrompt={setPrompt}
+              inputMode={inputMode}   setInputMode={setInputMode}
+              selectedTracks={selectedTracks} setSelectedTracks={setSelectedTracks}
+              uploadName={uploadName}
+              onUpload={handleUpload}
+              onStartRec={startRecording}
+              onStopRec={stopRecording}
+              onClearRec={() => {
                 clearRecording();
+                setUploadBlob(null);
+                setUploadName(null);
                 setAppStatus('idle');
                 setMidiData(null);
                 setStreamLogs([]);
                 setApiError(null);
               }}
+              recError={recError}
+              onGenerate={handleGenerate}
+              isProcessing={isProcessing}
               disabled={isProcessing}
-              error={recError}
             />
 
             {/* Generation progress bar */}
             {isProcessing && genStep > 0 && (
-              <GenerationProgress step={genStep} label={genLabel} />
+              <GenerationProgress step={genStep} label={genLabel} totalSteps={genTotal} />
             )}
 
             {/* Generate Band button */}
@@ -365,20 +435,21 @@ export default function Home() {
           </section>
         </main>
 
-        {/* ── Transport Controls (footer) ── */}
-        <footer className="shrink-0 border-t-2 border-border p-4">
-          <TransportControls
+        {/* ── Production Board (mixer + transport) ── */}
+        <footer className="shrink-0 border-t-2 border-border">
+          <ProductionBoard
+            midiData={midiData}
+            hasAudio={!!effectiveAudio}
+            trackStates={trackStates}
+            isPlaying={isPlaying}
+            isReady={isReady}
             onPlay={handlePlay}
             onPause={handlePause}
             onStop={handleStop}
-            isPlaying={isPlaying}
-            isReady={isReady}
-            guitarVolume={guitarVolume}
-            bassVolume={bassVolume}
-            drumsVolume={drumsVolume}
-            onGuitarVol={(db) => handleVolume('guitar', db)}
-            onBassVol={(db)   => handleVolume('bass',   db)}
-            onDrumsVol={(db)  => handleVolume('drums',  db)}
+            onMute={handleMute}
+            onSolo={handleSolo}
+            onVolume={handleVolume}
+            onExportJson={handleExportJson}
           />
         </footer>
       </div>
