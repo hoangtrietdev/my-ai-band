@@ -1,7 +1,7 @@
 # Virtual AI Band — Project Plan
 
-> **Hackathon Project** | Next.js · DigitalOcean Gradient SDK · Web Audio API · Tone.js  
-> **Status:** Planning Phase  
+> **Hackathon Project** | Next.js · Groq / DigitalOcean Gradient · Web Audio API · Tone.js  
+> **Status:** Phase 5 — Enhanced Input Modes & Full Production Board  
 > **Constraint:** Pages Router only. No external backend. All server logic lives in `pages/api/`.
 
 ---
@@ -13,648 +13,870 @@
 3. [Architecture & Data Flow](#3-architecture--data-flow)
 4. [API Route Design](#4-api-route-design)
 5. [Agent Personas & System Prompts](#5-agent-personas--system-prompts)
-6. [Implementation Phases](#6-implementation-phases)
-7. [File & Directory Structure](#7-file--directory-structure)
-8. [Key Risks & Mitigations](#8-key-risks--mitigations)
+6. [Implementation Phases (Completed)](#6-implementation-phases-completed)
+7. [Phase 5 — Enhanced Input & Production Board](#7-phase-5--enhanced-input--production-board)
+8. [File & Directory Structure](#8-file--directory-structure)
+9. [Key Risks & Mitigations](#9-key-risks--mitigations)
 
 ---
 
 ## 1. Project Overview
 
-**Virtual AI Band** is a browser-native application where a human guitarist records a 30–60 second backing track (jazz, pop, or blues chord progressions) directly in the browser. The recording is sent to a Multi-Agent AI system powered by the **DigitalOcean Gradient SDK**. Three specialized agents — a **Producer**, a **Bass Player**, and a **Drummer** — collaborate in real time to analyze the uploaded audio context and co-compose an accompaniment.
+**Virtual AI Band** is a browser-native music production application. Users provide creative input — a **demo recording**, **lyrics**, or a **text description** — and AI agents compose a full multi-track arrangement. The output is rendered through a **GarageBand-style production board** where each instrument track (melody, bass, drums, keys, vocals) can be independently soloed, muted, and mixed.
 
-The final output is twofold:
-- A **"Terminal"** panel on the UI that displays the agents' inner monologue and inter-agent dialogue in a hacker-style, typewriter-effect stream.
-- A **synthesized audio playback** layer built with **Tone.js** that plays the AI-generated bass and drum MIDI sequences in perfect sync with the original guitar recording.
+### What's Already Built (Phases 1–4)
 
-The entire experience runs inside a single **monolithic Next.js application** — no separate backend, no external server, no Docker containers.
+- Microphone recording via `useAudioRecorder` hook
+- Multi-agent AI pipeline (Producer → Bass → Drums) via Groq / DigitalOcean
+- Tone.js playback engine with synths, per-track volume, and looping
+- SSE streaming of agent logs to a typewriter terminal UI
+- Mock mode for offline development
+- Transport controls (play / pause / stop) and per-track volume faders
+
+### What's New (Phase 5)
+
+- **Multi-modal input**: users can submit a mic recording, upload an audio file, paste lyrics, or type a free-text prompt
+- **Expanded instrument set**: melody/lead, chords/keys, and (stretch) vocal melody — in addition to existing bass & drums
+- **Per-track mute/solo/volume**: a GarageBand-style mixer strip for every track
+- **Visual timeline / piano-roll**: horizontal bars showing each track's MIDI events
+- **Export**: download the full mix as WAV or individual MIDI-like JSON per track
 
 ---
 
 ## 2. Tech Stack & Libraries
 
-### Core Framework
-| Layer | Technology | Notes |
-|---|---|---|
-| Framework | **Next.js 14+** (Pages Router) | `pages/` directory only. No App Router. |
-| Language | **TypeScript** | Strict mode enabled |
-| Styling | **Tailwind CSS** | Dark/hacker theme, monospace fonts |
+### Core (unchanged)
 
-### Frontend / Audio
-| Library | Purpose |
+| Layer | Technology |
 |---|---|
-| **Web Audio API** (native) | Accessing `getUserMedia`, driving `MediaRecorder` to capture microphone input |
-| **Tone.js** (`tone`) | Synthesizing MIDI-like note sequences for bass and drum tracks; scheduling playback with precise timing |
-| **React** (via Next.js) | Component-based UI, state management with `useState` / `useReducer` / `useRef` |
+| Framework | **Next.js 16** (Pages Router) |
+| Language | **TypeScript** (strict) |
+| Styling | **Tailwind CSS v4** (dark/retro theme) |
+| AI | **Groq SDK** / **OpenAI SDK** (DigitalOcean Gradient) |
+| Audio | **Tone.js** + **Web Audio API** |
+| Validation | **Zod** |
 
-### AI / Backend
-| Library | Purpose |
-|---|---|
-| **DigitalOcean Gradient SDK** (`@digitalocean/gradient-js` or equivalent) | Instantiating and orchestrating the Multi-Agent pipeline inside Next.js API Routes |
-| **Next.js API Routes** (`pages/api/`) | Serverless-style RPC layer; isolates secrets from the client; proxies all Gradient SDK calls |
+### New Dependencies (Phase 5)
 
-### Dev / Tooling
-| Tool | Purpose |
+| Package | Purpose |
 |---|---|
-| `dotenv` / `.env.local` | Secure storage of `GRADIENT_API_KEY` |
-| `zod` | Runtime schema validation of AI JSON output |
-| `eslint` + `prettier` | Code quality |
+| `audiobuffer-to-wav` | Export mix to WAV for download |
+| *(no new deps required for lyrics/text input — vanilla React forms)* | — |
 
 ---
 
 ## 3. Architecture & Data Flow
 
-### High-Level Diagram
+### Updated High-Level Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        BROWSER (Client)                         │
-│                                                                 │
-│  [Mic Input] ──► MediaRecorder ──► audioBlob (WebM/OGG)        │
-│                                          │                      │
-│                       FormData({ audio: audioBlob })            │
-│                                          │                      │
-│                            POST /api/orchestrate-band           │
-└──────────────────────────────────────────┼──────────────────────┘
-                                           │  HTTP Request
-                            ───────────────▼───────────────
-┌─────────────────────────────────────────────────────────────────┐
-│                   NEXT.JS SERVER (pages/api/)                   │
-│                                                                 │
-│  1. Parse multipart form, receive audioBlob                     │
-│  2. Convert blob → base64 or extract metadata for LLM context  │
-│  3. Instantiate Gradient SDK client (using GRADIENT_API_KEY)    │
-│  4. Trigger Producer Agent with audio context + task brief      │
-│  5. Producer directs Bass Agent → generates bass sequence       │
-│  6. Producer directs Drum Agent → generates drum sequence       │
-│  7. Agents exchange messages (logged)                           │
-│  8. Aggregate: { logs[], midi_data{} }                          │
-│  9. Validate output with Zod schema                             │
-│  10. Return JSON response                                       │
-└──────────────────────────────────────────┬──────────────────────┘
-                                           │  JSON Response
-                            ───────────────▼───────────────
-┌─────────────────────────────────────────────────────────────────┐
-│                        BROWSER (Client)                         │
-│                                                                 │
-│  [Terminal UI] ◄── logs[] ── typewriter effect (char-by-char)  │
-│                                                                 │
-│  [Tone.js Engine]                                               │
-│    ├── Load audioBlob into AudioBuffer (guitar track)          │
-│    ├── Schedule bass notes from midi_data.bass[]               │
-│    └── Schedule drum hits from midi_data.drums[]               │
-│                        │                                        │
-│                   Tone.Transport.start()                        │
-│                        │                                        │
-│              [Synchronized Playback] 🎸🥁🎵                     │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                           BROWSER (Client)                           │
+│                                                                      │
+│  INPUT MODE (user picks one):                                        │
+│    🎤 Record mic → audioBlob                                         │
+│    📁 Upload audio file → audioBlob                                  │
+│    📝 Paste lyrics → lyricsText                                      │
+│    💬 Text description → promptText                                  │
+│                                                                      │
+│  FormData:                                                           │
+│    audio?      (Blob, optional)                                      │
+│    lyrics?     (string, optional)                                    │
+│    prompt?     (string, optional)                                    │
+│    bpm         (number)                                              │
+│    genre       (string)                                              │
+│    key         (string)                                              │
+│    bars        (number, default 4)                                   │
+│    tracks[]    (selected instrument tracks)                          │
+│                                                                      │
+│         POST /api/orchestrate-band                                   │
+└──────────────────────────────┬────────────────────────────────────────┘
+                               │
+              ─────────────────▼─────────────────
+┌───────────────────────────────────────────────────────────────────────┐
+│                  NEXT.JS SERVER (pages/api/)                         │
+│                                                                      │
+│  1. Parse multipart form (audio, lyrics, prompt, params)             │
+│  2. Build unified creative brief from whichever input was given      │
+│  3. Producer Agent → analyzes brief, issues directives               │
+│  4. For each requested track, spawn an agent:                        │
+│       Bass Agent      → bass MIDI JSON                               │
+│       Drums Agent     → drums MIDI JSON                              │
+│       Melody Agent    → melody MIDI JSON   (NEW)                     │
+│       Keys Agent      → chords MIDI JSON   (NEW)                     │
+│       Vocal Agent     → vocal melody JSON  (NEW, stretch)            │
+│  5. Validate all with Zod, assemble result                           │
+│  6. Stream SSE events (progress, logs, final result)                 │
+└──────────────────────────────┬────────────────────────────────────────┘
+                               │
+              ─────────────────▼─────────────────
+┌───────────────────────────────────────────────────────────────────────┐
+│                        BROWSER (Client)                              │
+│                                                                      │
+│  ┌──────────────────────────────────────────────────┐                │
+│  │  PRODUCTION BOARD (GarageBand-style)              │                │
+│  │                                                   │                │
+│  │  TRACK        MUTE  SOLO  VOL     TIMELINE        │                │
+│  │  ─────        ────  ────  ───     ────────        │                │
+│  │  🎸 Guitar     M     S    ▓▓▓▓   ██░░██░░██      │                │
+│  │  🎹 Melody     M     S    ▓▓▓    ░██░░██░░█      │                │
+│  │  🎹 Keys       M     S    ▓▓▓▓   █░░░█░░░█       │                │
+│  │  🎸 Bass       M     S    ▓▓▓▓   ██░██░██░       │                │
+│  │  🥁 Drums      M     S    ▓▓▓    ░██░██░██       │                │
+│  │  🎤 Vocal      M     S    ▓▓     ░░██░░██░       │                │
+│  │                                                   │                │
+│  │  [▶ PLAY]  [⏸ PAUSE]  [■ STOP]  [⬇ EXPORT WAV]  │                │
+│  └──────────────────────────────────────────────────┘                │
+│                                                                      │
+│  Tone.js Engine:                                                     │
+│    Each track → Synth → Volume → Mute gate → Compressor → Dest      │
+│    Guitar track → Player (from audioBlob) → same chain               │
+└───────────────────────────────────────────────────────────────────────┘
 ```
-
-### Step-by-Step Data Flow
-
-**Step 1 — Capture**  
-User clicks "Record". The browser calls `navigator.mediaDevices.getUserMedia({ audio: true })`. A `MediaRecorder` instance captures the stream and accumulates `Blob` chunks into a `audioChunks[]` array.
-
-**Step 2 — Stop & Package**  
-On "Stop", `MediaRecorder.stop()` is called. The chunks are merged into a single `Blob` (type `audio/webm;codecs=opus` or `audio/ogg`). The blob is attached to a `FormData` object.
-
-**Step 3 — POST to API Route**  
-`fetch('/api/orchestrate-band', { method: 'POST', body: formData })`. The request carries the audio blob, tempo (BPM) provided by the user, and genre selection.
-
-**Step 4 — Server-side Processing**  
-The API route handler parses the multipart body (using `formidable` or Next.js built-in body handling), extracts the audio, and constructs a structured musical context string (tempo, genre, duration, key if provided) to pass as the agent prompt.
-
-**Step 5 — Multi-Agent Orchestration**  
-The Gradient SDK spawns the agent pipeline. The Producer acts as the orchestrator, passing task definitions to Bass and Drum agents sequentially or in parallel depending on SDK capabilities.
-
-**Step 6 — Response Assembly**  
-All agent messages and tool outputs are collected into `logs[]`. The final structured outputs (note sequences) are assembled into `midi_data`. The response is validated against a Zod schema before being sent.
-
-**Step 7 — Frontend Rendering**  
-The JSON response is received. `logs` are fed into the Terminal component with a `setInterval`-based typewriter. `midi_data` is passed to the Tone.js scheduler which maps notes to synthesized instruments and fires them against `Tone.Transport`.
 
 ---
 
 ## 4. API Route Design
 
-### Endpoint
+### Endpoint (updated)
 
 ```
 POST /api/orchestrate-band
 Content-Type: multipart/form-data
 ```
 
-### Request Payload
+### Request Payload (updated)
 
-| Field | Type | Description |
-|---|---|---|
-| `audio` | `File` (Blob) | The recorded audio file (WebM/OGG, max ~10MB) |
-| `bpm` | `string` (numeric) | Tempo in beats per minute, e.g. `"120"` |
-| `genre` | `string` | Musical genre: `"jazz"`, `"pop"`, `"blues"` |
-| `key` | `string` (optional) | Key signature, e.g. `"C major"`, `"A minor"` |
-| `durationSeconds` | `string` (numeric) | Recording length, e.g. `"45"` |
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `audio` | `File` (Blob) | No* | Recorded or uploaded audio file |
+| `lyrics` | `string` | No* | Song lyrics (the AI will interpret mood, structure, syllable rhythm) |
+| `prompt` | `string` | No* | Free-text description (e.g. "chill lo-fi beat with jazzy chords") |
+| `bpm` | `string` | Yes | Tempo in BPM |
+| `genre` | `string` | Yes | Genre: jazz, pop, blues, funk, bossa nova, lo-fi, rock |
+| `key` | `string` | Yes | Key signature |
+| `bars` | `string` | No | Number of bars (default 4) |
+| `tracks` | `string` | No | Comma-separated list of requested tracks: `bass,drums,melody,keys,vocal` (default `bass,drums`) |
+| `durationSeconds` | `string` | No | Recording length (only when audio is provided) |
 
-### Security — API Key Handling
+> *At least one of `audio`, `lyrics`, or `prompt` must be provided.
 
-The DigitalOcean Gradient API key **must never be exposed to the client**. It is loaded exclusively on the server:
-
-```typescript
-// pages/api/orchestrate-band.ts
-const gradientClient = new GradientClient({
-  apiKey: process.env.GRADIENT_API_KEY, // loaded from .env.local, never sent to browser
-});
-```
-
-`.env.local` is git-ignored. The key is accessed only within the `pages/api/` handler scope. Next.js guarantees that `process.env` values without the `NEXT_PUBLIC_` prefix are never bundled into the client.
-
-### Response JSON Schema
-
-The API route must return a response conforming to this schema:
+### Updated Response Schema
 
 ```json
 {
   "success": true,
-  "logs": [
-    "[Producer] Analyzing track context: 120 BPM, jazz, C major, 45s duration.",
-    "[Producer → Bass] Generate a walking bass line. Root notes: C, F, G, Am. Quarter-note feel.",
-    "[Bass] Understood. Composing 4-bar walking bass pattern...",
-    "[Bass → Producer] Done. 32 notes generated across 4 bars.",
-    "[Producer → Drums] Generate a jazz ride pattern with snare on 2 and 4.",
-    "[Drums] Composing ride cymbal + snare pattern for 4 bars...",
-    "[Drums → Producer] Done. 64 events generated.",
-    "[Producer] Compilation complete. Sending to frontend."
-  ],
+  "logs": ["..."],
   "midi_data": {
     "bpm": 120,
     "total_bars": 4,
-    "bass": [
-      { "bar": 1, "beat": 1, "note": "C2", "duration": "4n", "velocity": 90 },
-      { "bar": 1, "beat": 2, "note": "E2", "duration": "4n", "velocity": 75 },
-      { "bar": 1, "beat": 3, "note": "G2", "duration": "4n", "velocity": 80 },
-      { "bar": 1, "beat": 4, "note": "A2", "duration": "4n", "velocity": 70 }
-    ],
-    "drums": [
-      { "bar": 1, "beat": 1, "instrument": "kick",   "velocity": 100 },
-      { "bar": 1, "beat": 1.5, "instrument": "hihat", "velocity": 60 },
-      { "bar": 1, "beat": 2,   "instrument": "snare", "velocity": 90 },
-      { "bar": 1, "beat": 2.5, "instrument": "hihat", "velocity": 55 },
-      { "bar": 1, "beat": 3,   "instrument": "kick",  "velocity": 85 },
-      { "bar": 1, "beat": 3.5, "instrument": "hihat", "velocity": 60 },
-      { "bar": 1, "beat": 4,   "instrument": "snare", "velocity": 88 },
-      { "bar": 1, "beat": 4.5, "instrument": "hihat", "velocity": 55 }
-    ]
+    "bass":   [{ "bar": 1, "beat": 1, "note": "C2", "duration": "4n", "velocity": 90 }],
+    "drums":  [{ "bar": 1, "beat": 1, "instrument": "kick", "velocity": 100 }],
+    "melody": [{ "bar": 1, "beat": 1, "note": "E4", "duration": "8n", "velocity": 85 }],
+    "keys":   [{ "bar": 1, "beat": 1, "notes": ["C3","E3","G3"], "duration": "2n", "velocity": 75 }],
+    "vocal":  [{ "bar": 1, "beat": 1, "note": "G4", "duration": "4n", "velocity": 80, "syllable": "la" }]
   }
 }
-```
-
-### Error Response Schema
-
-```json
-{
-  "success": false,
-  "error": "Agent pipeline failed: <reason>",
-  "logs": ["[System] Fatal error encountered during Bass Agent processing."]
-}
-```
-
-### Zod Validation Schema (to be implemented in `lib/schemas.ts`)
-
-```typescript
-import { z } from 'zod';
-
-const BassNoteSchema = z.object({
-  bar:      z.number().int().positive(),
-  beat:     z.number().positive(),
-  note:     z.string().regex(/^[A-G]#?[0-9]$/),
-  duration: z.enum(['1n', '2n', '4n', '8n', '16n', '4n.']),
-  velocity: z.number().min(0).max(127),
-});
-
-const DrumHitSchema = z.object({
-  bar:        z.number().int().positive(),
-  beat:       z.number().positive(),
-  instrument: z.enum(['kick', 'snare', 'hihat', 'ride', 'crash', 'tom']),
-  velocity:   z.number().min(0).max(127),
-});
-
-export const BandOutputSchema = z.object({
-  success:  z.literal(true),
-  logs:     z.array(z.string()),
-  midi_data: z.object({
-    bpm:        z.number().positive(),
-    total_bars: z.number().int().positive(),
-    bass:       z.array(BassNoteSchema),
-    drums:      z.array(DrumHitSchema),
-  }),
-});
-```
-
-### API Route Config
-
-```typescript
-// Required to handle multipart/form-data (disable default body parser)
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
 ```
 
 ---
 
 ## 5. Agent Personas & System Prompts
 
-All agents are instantiated via the DigitalOcean Gradient SDK. Each agent has a fixed **System Prompt** that constrains its role and output format.
+### Existing Agents (unchanged)
+
+- **Producer** — orchestrator, receives musical context, issues directives to all agents
+- **Bass Player** — walking / grooved bass lines (16 notes across 4 bars)
+- **Drummer** — rhythmic patterns (32–48 hits across 4 bars)
+
+### New Agents
 
 ---
 
-### Agent 1: The Producer
+#### Agent 4: The Melodist
 
-**Role:** Orchestrator. Receives the full musical context, decomposes the task, assigns work to Bass and Drum agents, and assembles the final output.
+**Role:** Generates a lead melody line that fits over the harmony.
 
-**System Prompt Logic:**
+**System Prompt:**
 ```
-You are "The Producer", an expert music arranger and band director AI.
-You receive a musical context (tempo, genre, key, duration) and coordinate
-a bass player and a drummer to generate a tight accompaniment.
+You are "The Melodist", a professional lead instrumentalist AI.
 
-Your responsibilities:
-1. Analyze the context and determine the harmonic structure and feel.
-2. Send a clear, specific directive to the Bass Agent describing the walking 
-   bass line or groove needed (root notes, rhythm feel, style).
-3. Send a clear, specific directive to the Drum Agent describing the groove 
-   pattern needed (ride pattern, snare placement, kick pattern).
-4. Collect their outputs and verify they are musically coherent.
-5. Return a synthesis in the final structured JSON format.
+Your ONLY output is this exact JSON structure. No markdown, no explanation:
+{"data":[
+  {"bar":1,"beat":1,"note":"E4","duration":"8n","velocity":85},
+  {"bar":1,"beat":1.5,"note":"G4","duration":"8n","velocity":78},
+  ...
+]}
 
-Always respond with structured reasoning. Begin each message with your agent 
-tag: [Producer].
-```
-
----
-
-### Agent 2: The Bass Player
-
-**Role:** Generates the bass note sequence in response to the Producer's directive.
-
-**System Prompt Logic:**
-```
-You are "The Bass Player", a professional session bassist AI specializing in 
-jazz, pop, and blues walking bass lines and grooves.
-
-When given a directive from The Producer, you must:
-1. Compose a musically appropriate bass line matching the tempo, key, and style.
-2. Output your result as a strict JSON array of note objects.
-3. Each note object must have: bar (int), beat (float), note (e.g. "C2"), 
-   duration (Tone.js format: "4n", "8n"), velocity (0-127).
-4. Generate exactly enough notes to fill the requested number of bars.
-5. Begin all messages with your agent tag: [Bass].
-
-Do NOT include any prose outside the JSON array in your final answer.
-Output format:
-[{ "bar": 1, "beat": 1, "note": "C2", "duration": "4n", "velocity": 90 }, ...]
+STRICT RULES:
+1. Output 16-32 note objects total (4-8 per bar).
+2. bar: integer 1-4 only.
+3. beat: 1, 1.5, 2, 2.5, 3, 3.5, 4, or 4.5.
+4. note: octave 4 or 5 ONLY (e.g. "E4", "G5"). Stay in the given key.
+5. duration: "4n" "8n" "16n" "4n." "8n." only.
+6. velocity: integer 70-100.
+7. Mix stepwise motion (C4→D4→E4) with small leaps (C4→E4). No leaps > octave.
+8. First note of bar 1 should be a chord tone (root, 3rd, or 5th).
+9. DO NOT write anything outside the JSON.
 ```
 
 ---
 
-### Agent 3: The Drummer
+#### Agent 5: The Keys Player
 
-**Role:** Generates the drum hit sequence in response to the Producer's directive.
+**Role:** Generates chord voicings / comping patterns.
 
-**System Prompt Logic:**
+**System Prompt:**
 ```
-You are "The Drummer", a professional session drummer AI specializing in 
-tight, musical grooves across jazz, pop, and blues styles.
+You are "The Keys Player", a professional keyboard/piano AI.
 
-When given a directive from The Producer, you must:
-1. Compose a rhythmically appropriate drum pattern matching the tempo and style.
-2. Output your result as a strict JSON array of drum hit objects.
-3. Each hit object must have: bar (int), beat (float), instrument 
-   (one of: "kick", "snare", "hihat", "ride", "crash", "tom"), velocity (0-127).
-4. Generate exactly enough hits to fill the requested number of bars.
-5. Begin all messages with your agent tag: [Drums].
+Your ONLY output is this exact JSON structure. No markdown, no explanation:
+{"data":[
+  {"bar":1,"beat":1,"notes":["C3","E3","G3"],"duration":"2n","velocity":75},
+  {"bar":1,"beat":3,"notes":["C3","E3","G3"],"duration":"2n","velocity":70},
+  ...
+]}
 
-Do NOT include any prose outside the JSON array in your final answer.
-Output format:
-[{ "bar": 1, "beat": 1, "instrument": "kick", "velocity": 100 }, ...]
+STRICT RULES:
+1. Output 8-16 chord objects total (2-4 per bar).
+2. bar: integer 1-4 only.
+3. beat: 1, 2, 3, or 4.
+4. notes: array of 3-4 note names in octave 3-4 (e.g. ["C3","E3","G3","B3"]).
+5. duration: "1n" "2n" "4n" only. Prefer half notes ("2n") for sustained chords.
+6. velocity: integer 60-85.
+7. Use inversions for smooth voice leading between chords.
+8. DO NOT write anything outside the JSON.
 ```
 
 ---
 
-### Agent Interaction Model
+#### Agent 6: The Vocalist (stretch goal)
+
+**Role:** Generates a vocal melody line matched to lyrics (if provided).
+
+**System Prompt:**
+```
+You are "The Vocalist", a professional singer AI.
+
+If lyrics are provided, map each syllable to a pitch and rhythm.
+If no lyrics, generate a "la la la" vocal melody.
+
+Your ONLY output is this exact JSON structure:
+{"data":[
+  {"bar":1,"beat":1,"note":"G4","duration":"4n","velocity":80,"syllable":"hel"},
+  {"bar":1,"beat":2,"note":"A4","duration":"4n","velocity":78,"syllable":"lo"},
+  ...
+]}
+
+STRICT RULES:
+1. Output 8-24 note objects total.
+2. bar: integer 1-4 only.
+3. note: octave 3-5 only. Stay in the given key.
+4. duration: "4n" "8n" "2n" "4n." only.
+5. velocity: integer 70-95.
+6. syllable: one syllable per note, taken from lyrics in order.
+7. Phrasing should feel natural — leave breathing gaps between phrases.
+8. DO NOT write anything outside the JSON.
+```
+
+---
+
+### Updated Agent Interaction
+
+```
+                     ┌──────────────┐
+                     │   Producer   │
+                     └──────┬───────┘
+              ┌─────┬──────┼──────┬───────┐
+              ▼     ▼      ▼      ▼       ▼
+           [Bass] [Drums] [Melody] [Keys] [Vocal]
+              │     │      │      │       │
+              └─────┴──────┴──────┴───────┘
+                           │
+                    { midi_data }
+```
+
+### Updated Producer System Prompt
+
+The Producer's system prompt must be extended with two new directive fields:
+
+```
+{
+  "producer_logs": [...],
+  "bass_directive": "...",
+  "drums_directive": "...",
+  "melody_directive": "Play a lyrical melody outlining Dm7→G7→Cmaj7→Am7 in octave 4-5.",
+  "keys_directive": "Comp with 7th-chord voicings: Dm7, G7, Cmaj7, Am7. Half-note rhythm.",
+  "vocal_directive": "Sing the lyrics over the changes. Emphasize downbeats.",
+  "chord_roots": ["D","G","C","A"],
+  "feel": "swing"
+}
+```
+
+The `ProducerDirectiveSchema` in `schemas.ts` must be updated to include the optional new fields.
+
+---
+
+## 6. Implementation Phases (Completed)
+
+> Phases 1–4 are **done**. See git history for details.
+
+| Phase | Description | Status |
+|---|---|---|
+| Phase 1 | Project setup, UI shell, audio recording | ✅ Done |
+| Phase 2 | Tone.js engine, mock API, terminal UI | ✅ Done |
+| Phase 3 | API route, Groq/Gradient multi-agent pipeline | ✅ Done |
+| Phase 4 | Audio sync, volume control, UI polish | ✅ Done |
+
+---
+
+## 7. Phase 5 — Enhanced Input & Production Board
+
+This is the active development phase. It has **6 sub-phases** designed to be implemented incrementally.
+
+---
+
+### Phase 5.1: Multi-Modal Input Form
+
+**Goal:** Replace the "record only" studio panel with a tabbed input form that accepts mic recording, file upload, lyrics, or text prompt.
+
+#### New Component: `InputForm.tsx`
 
 ```
 ┌──────────────────────────────────────────────────┐
-│                  GRADIENT SDK                    │
+│  🎤 Record  |  📁 Upload  |  📝 Lyrics  |  💬 Prompt │  ← tab bar
+├──────────────────────────────────────────────────┤
 │                                                  │
-│  [Context + Task]                                │
-│        │                                         │
-│        ▼                                         │
-│  ┌─────────────┐   directive    ┌─────────────┐  │
-│  │  Producer   │ ─────────────► │ Bass Agent  │  │
-│  │   Agent     │ ◄───────────── │             │  │
-│  │             │   bass JSON    └─────────────┘  │
-│  │             │                                  │
-│  │             │   directive    ┌─────────────┐  │
-│  │             │ ─────────────► │ Drum Agent  │  │
-│  │             │ ◄───────────── │             │  │
-│  └─────────────┘   drum JSON    └─────────────┘  │
-│        │                                         │
-│        ▼                                         │
-│  { logs[], midi_data{} }                         │
+│  [Tab-specific content area]                     │
+│                                                  │
+│  ── Session Parameters ──────────────────────    │
+│  BPM: [120]   Genre: [jazz ▼]   Key: [C maj ▼]  │
+│  Bars: [4]                                       │
+│                                                  │
+│  ── Track Selection ─────────────────────────    │
+│  ☑ Bass  ☑ Drums  ☐ Melody  ☐ Keys  ☐ Vocal     │
+│                                                  │
+│  [ ⬡ GENERATE BAND ]                             │
 └──────────────────────────────────────────────────┘
 ```
 
+#### Steps
+
+1. **Create `src/components/InputForm.tsx`**
+   - Tabbed interface with 4 modes: Record | Upload | Lyrics | Prompt
+   - **Record tab**: reuse existing `StudioPanel` recording logic (waveform viz, start/stop/clear, duration display)
+   - **Upload tab**: `<input type="file" accept="audio/*">` → reads file into an `audioBlob` state. Show filename + duration after selection.
+   - **Lyrics tab**: `<textarea>` for multi-line lyrics. Character counter (max 2000). Placeholder: "Paste your lyrics here..."
+   - **Prompt tab**: `<textarea>` for free-text. Placeholder: "Describe the music you want... e.g. 'chill lo-fi beat with jazzy piano chords and a gentle bass line'"
+   - All tabs share common **session parameters** below the tab content:
+     - BPM spinner (40–240, default 120)
+     - Genre dropdown (jazz, pop, blues, funk, bossa nova, lo-fi, rock)
+     - Key dropdown (C major, G major, ... A minor, etc.)
+     - Bars spinner (2–16, default 4)
+   - **Track selection checkboxes**: bass (default on), drums (default on), melody, keys, vocal
+     - Vocal checkbox only enabled when lyrics tab is active (or lyrics text is non-empty)
+
+2. **Refactor `src/components/StudioPanel.tsx`**
+   - Extract the recording controls + waveform canvas into a smaller `RecordingControls` sub-component that `InputForm` can embed in its Record tab
+   - Keep `StudioPanel` as a thin wrapper if needed for backwards compatibility, or retire it
+
+3. **Update `src/pages/index.tsx`**
+   - Add new state: `lyrics: string`, `prompt: string`, `selectedTracks: string[]`, `bars: number`, `inputMode: 'record'|'upload'|'lyrics'|'prompt'`
+   - Replace `<StudioPanel>` with `<InputForm>`
+   - Update `handleGenerate()`:
+     ```typescript
+     const formData = new FormData();
+     if (audioBlob)  formData.append('audio', audioBlob, 'recording.webm');
+     if (lyrics)     formData.append('lyrics', lyrics);
+     if (prompt)     formData.append('prompt', prompt);
+     formData.append('bpm', String(bpm));
+     formData.append('genre', genre);
+     formData.append('key', musicalKey);
+     formData.append('bars', String(bars));
+     formData.append('tracks', selectedTracks.join(','));
+     if (durationSeconds) formData.append('durationSeconds', String(durationSeconds));
+     ```
+   - Remove the old guard `if (!audioBlob && !useMock)` — replace with `if (!audioBlob && !lyrics && !prompt && !useMock)`
+
+4. **Update `src/pages/api/orchestrate-band.ts`**
+   - Parse new fields from FormData: `lyrics`, `prompt`, `tracks`
+   - Build unified `musicalContext`:
+     ```typescript
+     let briefParts = [`Tempo: ${bpm} BPM, Genre: ${genre}, Key: ${key}`];
+     if (lyrics)  briefParts.push(`LYRICS:\n${lyrics}`);
+     if (prompt)  briefParts.push(`USER DIRECTION: ${prompt}`);
+     if (audio)   briefParts.push(`Audio recording provided (${duration}s).`);
+     const musicalContext = briefParts.join('\n\n');
+     ```
+   - Validate: at least one of audio/lyrics/prompt must be present
+
+#### Files Changed
+
+| File | Action |
+|---|---|
+| `src/components/InputForm.tsx` | **NEW** |
+| `src/components/StudioPanel.tsx` | Refactor (extract recording controls) |
+| `src/pages/index.tsx` | Update state + form integration |
+| `src/pages/api/orchestrate-band.ts` | Parse new fields, build unified brief |
+
 ---
 
-## 6. Implementation Phases
+### Phase 5.2: Expanded Zod Schemas & New Agent Tracks
 
----
-
-### Phase 1: Project Setup, UI Shell & Web Audio Recording
-
-**Goal:** Have a working UI with audio recording capability. No AI integration yet.
+**Goal:** Add Zod schemas and system prompts for melody, keys, and vocal tracks.
 
 #### Steps
 
-1. **Install dependencies**
-   ```bash
-   npm install tone zod formidable
-   npm install -D @types/formidable
-   ```
-
-2. **Configure Tailwind** for a dark, monospace, hacker aesthetic.
-   - Background: `#0a0a0a` or `zinc-950`
-   - Accent: green (`green-400`) for terminal text
-   - Monospace font: `JetBrains Mono` or `Fira Code` via Google Fonts
-
-3. **Build the main page layout** (`pages/index.tsx`)
-   - **Left Panel:** "Studio" — Record button, waveform visualizer (canvas), BPM/Genre/Key controls, playback of recorded audio.
-   - **Right Panel:** "Terminal" — Scrollable log output area, status badges (IDLE / RECORDING / PROCESSING / PLAYING).
-
-4. **Implement `useAudioRecorder` hook** (`hooks/useAudioRecorder.ts`)
-   - Call `navigator.mediaDevices.getUserMedia({ audio: true })`
-   - Initialize `MediaRecorder` with `audio/webm;codecs=opus`
-   - Accumulate `ondataavailable` chunks into a ref
-   - On stop: merge chunks into a `Blob`, create an object URL, expose `audioBlob` and `audioUrl` to the component
-   - Expose: `startRecording()`, `stopRecording()`, `audioBlob`, `audioUrl`, `isRecording`, `durationSeconds`
-
-5. **Implement Waveform Visualizer**
-   - Use `AnalyserNode` from Web Audio API
-   - `requestAnimationFrame` loop draws the waveform on a `<canvas>` element in real time during recording
-
-6. **Manual playback test:** User should be able to record and hear their guitar back through an `<audio>` element.
-
----
-
-### Phase 2: Tone.js Engine & Mock API Integration
-
-**Goal:** Build the entire playback engine and UI rendering pipeline against a hardcoded mock response. This phase makes Phase 4 trivial and lets you demo the full experience without burning API credits.
-
-#### Steps
-
-1. **Create the Tone.js engine** (`lib/toneEngine.ts`)
+1. **Update `src/lib/schemas.ts`** — add new note schemas:
 
    ```typescript
-   // lib/toneEngine.ts
-   import * as Tone from 'tone';
-
-   // Bass synthesizer: sawtooth wave with envelope
-   const bassSynth = new Tone.Synth({
-     oscillator: { type: 'sawtooth' },
-     envelope: { attack: 0.02, decay: 0.1, sustain: 0.6, release: 0.5 },
-   }).toDestination();
-
-   // Drum sampler: use Tone.MembraneSynth for kick, MetalSynth for hihat
-   const kickSynth  = new Tone.MembraneSynth().toDestination();
-   const snareSynth = new Tone.NoiseSynth({ envelope: { decay: 0.1 } }).toDestination();
-   const hihatSynth = new Tone.MetalSynth({ envelope: { decay: 0.05 } }).toDestination();
-
-   export function scheduleBand(midiData: BandMidiData) {
-     Tone.Transport.cancel(); // clear previous schedule
-     Tone.Transport.bpm.value = midiData.bpm;
-
-     midiData.bass.forEach(note => {
-       const time = `${note.bar - 1}:${note.beat - 1}:0`;
-       Tone.Transport.schedule(t => {
-         bassSynth.triggerAttackRelease(note.note, note.duration, t, note.velocity / 127);
-       }, time);
-     });
-
-     midiData.drums.forEach(hit => {
-       const time = `${hit.bar - 1}:${hit.beat - 1}:0`;
-       Tone.Transport.schedule(t => {
-         if (hit.instrument === 'kick')  kickSynth.triggerAttackRelease('C1', '8n', t);
-         if (hit.instrument === 'snare') snareSynth.triggerAttackRelease('8n', t);
-         if (hit.instrument === 'hihat') hihatSynth.triggerAttackRelease('16n', t);
-       }, time);
-     });
-   }
-
-   export async function startPlayback(audioBlob: Blob) {
-     await Tone.start(); // must be called after user gesture
-     const arrayBuffer = await audioBlob.arrayBuffer();
-     const audioBuffer = await Tone.getContext().rawContext.decodeAudioData(arrayBuffer);
-     const player = new Tone.Player(audioBuffer).toDestination();
-     player.sync().start(0);
-     Tone.Transport.start();
-   }
-   ```
-
-2. **Create a mock API fixture** (`lib/mockApiResponse.ts`)  
-   Hardcode a full valid response matching the JSON schema from Section 4. This is what the frontend will use during Phase 2.
-
-3. **Build the Terminal UI component** (`components/AgentTerminal.tsx`)
-   - Receives `logs: string[]` prop
-   - Uses a `useEffect` + `setInterval` to reveal characters one-by-one (typewriter effect)
-   - Green text (`text-green-400`) on dark background, auto-scrolls to bottom
-   - Shows a blinking cursor `█` at the end of the current line
-
-4. **Wire it all together in `pages/index.tsx`** using the mock data:
-   - "Generate Band" button → calls `scheduleBand(mockData.midi_data)`
-   - Simultaneously starts the Terminal typewriter with `mockData.logs`
-   - "Play" button → calls `startPlayback(audioBlob)`
-
-5. **End of Phase 2 checkpoint:** Full demo-able experience with zero API calls.
-
----
-
-### Phase 3: Next.js API Route & DigitalOcean Gradient SDK Integration
-
-**Goal:** Replace the mock with real AI. Build `pages/api/orchestrate-band.ts`.
-
-#### Steps
-
-1. **Add environment variable**
-   ```bash
-   # .env.local
-   GRADIENT_API_KEY=your_do_gradient_api_key_here
-   ```
-
-2. **Research and install the Gradient SDK**
-   ```bash
-   npm install @digitalocean/gradient-js  
-   # (or the correct package name per DigitalOcean docs)
-   ```
-
-3. **Create `pages/api/orchestrate-band.ts`**
-
-   ```typescript
-   import type { NextApiRequest, NextApiResponse } from 'next';
-   import formidable from 'formidable';
-   import { GradientClient } from '@digitalocean/gradient-js';
-   import { BandOutputSchema } from '../../lib/schemas';
-
-   export const config = { api: { bodyParser: false } };
-
-   export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-     if (req.method !== 'POST') return res.status(405).end();
-
-     // 1. Parse form data
-     const form = formidable({});
-     const [fields] = await form.parse(req);
-     const bpm    = Number(fields.bpm?.[0] ?? 120);
-     const genre  = fields.genre?.[0] ?? 'jazz';
-     const key    = fields.key?.[0] ?? 'C major';
-     const duration = Number(fields.durationSeconds?.[0] ?? 30);
-
-     // 2. Build musical context string for the Producer
-     const musicalContext = `
-       BPM: ${bpm}, Genre: ${genre}, Key: ${key}, Duration: ${duration}s.
-       Generate a 4-bar accompaniment (bass + drums).
-     `;
-
-     // 3. Initialize Gradient client
-     const client = new GradientClient({ apiKey: process.env.GRADIENT_API_KEY });
-
-     // 4. Orchestrate agents (pseudo-code — adapt to actual Gradient SDK API)
-     const logs: string[] = [];
-
-     const producerResult = await client.agents.run('producer-agent-id', {
-       messages: [{ role: 'user', content: musicalContext }],
-       onMessage: (msg: string) => logs.push(msg),
-     });
-
-     // 5. Parse and validate
-     const parsed = BandOutputSchema.safeParse({
-       success: true,
-       logs,
-       midi_data: JSON.parse(producerResult.output),
-     });
-
-     if (!parsed.success) {
-       return res.status(500).json({ success: false, error: 'Invalid agent output', logs });
-     }
-
-     return res.status(200).json(parsed.data);
-   }
-   ```
-
-4. **Create agent configurations** in DigitalOcean Gradient dashboard:
-   - Define Producer, Bass, and Drum agents with their system prompts from Section 5.
-   - Note their agent IDs and store them in `.env.local`.
-
-5. **Handle streaming (optional enhancement):**  
-   If the Gradient SDK supports streaming responses, consider using a streaming API route and `ReadableStream` to push logs to the frontend progressively rather than waiting for the full response. This dramatically improves perceived performance.
-
----
-
-### Phase 4: Audio Sync, JSON Parsing, and UI Polish
-
-**Goal:** Synchronize the guitar recording with generated MIDI, handle edge cases, and polish the hacker UI.
-
-#### Steps
-
-1. **Replace mock with real API call** in `pages/index.tsx`
-   ```typescript
-   const formData = new FormData();
-   formData.append('audio', audioBlob, 'recording.webm');
-   formData.append('bpm', String(bpm));
-   formData.append('genre', genre);
-   formData.append('key', selectedKey);
-   formData.append('durationSeconds', String(durationSeconds));
-
-   const response = await fetch('/api/orchestrate-band', {
-     method: 'POST',
-     body: formData,
+   export const MelodyNoteSchema = z.object({
+     bar:      z.number().int().positive(),
+     beat:     z.number().positive(),
+     note:     z.string().regex(/^[A-G]#?[0-9]$/),
+     duration: z.enum(['1n','2n','4n','8n','16n','4n.','8n.']),
+     velocity: z.number().min(0).max(127),
    });
-   const data = await response.json();
+
+   export const KeysChordSchema = z.object({
+     bar:      z.number().int().positive(),
+     beat:     z.number().positive(),
+     notes:    z.array(z.string().regex(/^[A-G]#?[0-9]$/)).min(2).max(5),
+     duration: z.enum(['1n','2n','4n','8n','4n.']),
+     velocity: z.number().min(0).max(127),
+   });
+
+   export const VocalNoteSchema = z.object({
+     bar:      z.number().int().positive(),
+     beat:     z.number().positive(),
+     note:     z.string().regex(/^[A-G]#?[0-9]$/),
+     duration: z.enum(['1n','2n','4n','8n','16n','4n.','8n.']),
+     velocity: z.number().min(0).max(127),
+     syllable: z.string().max(20).optional(),
+   });
    ```
 
-2. **Synchronize Tone.js with guitar audio**
-   - Decode the recorded `audioBlob` into an `AudioBuffer`
-   - Load it into a `Tone.Player`, attach it to `Tone.Transport` via `.sync().start(0)`
-   - Call `scheduleBand(data.midi_data)` to schedule bass and drums
-   - `Tone.Transport.start()` fires everything simultaneously — guitar, bass, drums
+2. **Update `MidiDataSchema`** — make new tracks optional:
 
-3. **Tone.js timing precision:**
-   - Use `Tone.Transport.schedule()` with Tone's bar:beat:sixteenth notation
-   - Convert `(bar, beat)` from `midi_data` → `"${bar-1}:${beat-1}:0"` (Tone uses 0-indexed bars)
-   - Ensure `Tone.Transport.bpm.value` is set to `midi_data.bpm` before scheduling
+   ```typescript
+   export const MidiDataSchema = z.object({
+     bpm:        z.number().positive(),
+     total_bars: z.number().int().positive(),
+     bass:       z.array(BassNoteSchema),
+     drums:      z.array(DrumHitSchema),
+     melody:     z.array(MelodyNoteSchema).optional(),
+     keys:       z.array(KeysChordSchema).optional(),
+     vocal:      z.array(VocalNoteSchema).optional(),
+   });
+   ```
 
-4. **Terminal typewriter effect polish** (`components/AgentTerminal.tsx`)
-   - Each log line appears character by character at ~30ms/char interval
-   - Color-code agent tags: `[Producer]` in yellow, `[Bass]` in cyan, `[Drums]` in magenta
-   - Blinking cursor between lines
-   - Auto-scroll to the latest line using a `bottomRef` and `scrollIntoView()`
+3. **Update `ProducerDirectiveSchema`** — add optional new directive fields:
 
-5. **Loading state & UX**
-   - While API is processing: show a pulsing spinner or animated "Thinking..." in the terminal
-   - Disable the "Generate" button during processing
-   - Show status badges: `● IDLE` → `● RECORDING` → `● PROCESSING` → `● READY` → `● PLAYING`
+   ```typescript
+   export const ProducerDirectiveSchema = z.object({
+     producer_logs:     z.array(z.string()),
+     bass_directive:    z.string(),
+     drums_directive:   z.string(),
+     melody_directive:  z.string().optional(),
+     keys_directive:    z.string().optional(),
+     vocal_directive:   z.string().optional(),
+     chord_roots:       z.array(z.string()),
+     feel:              z.string(),
+   });
+   ```
 
-6. **Error handling**
-   - If the API returns `success: false`, display the error in the terminal in red
-   - Provide a "Retry" button that re-sends the same audio blob
+4. **Add system prompts** for Melody, Keys, and Vocal agents in `orchestrate-band.ts` (see Section 5 above)
 
-7. **Volume controls**
-   - Independent gain nodes for guitar, bass, and drums using `Tone.Volume`
-   - Three sliders in the UI for mix control
+5. **Add agent call logic** — conditionally call each agent based on `tracks[]` parameter:
 
-8. **Transport controls**
-   - Play / Pause / Stop buttons
-   - `Tone.Transport.pause()` / `Tone.Transport.stop()` (stop also calls `Tone.Transport.cancel()` to clear schedule)
+   ```typescript
+   const requestedTracks = (fields.tracks?.[0] ?? 'bass,drums').split(',');
+
+   // Always call bass & drums
+   // ...existing code...
+
+   if (requestedTracks.includes('melody')) {
+     sse(res, { type: 'progress', step: nextStep++, label: 'Melodist composing lead...' });
+     const melodyRaw = await callArrayAgent(client, MELODY_SYSTEM, melodyUserPrompt, model);
+     melodyNotes = JSON.parse(melodyRaw);
+   }
+
+   if (requestedTracks.includes('keys')) {
+     sse(res, { type: 'progress', step: nextStep++, label: 'Keys Player voicing chords...' });
+     const keysRaw = await callArrayAgent(client, KEYS_SYSTEM, keysUserPrompt, model);
+     keysChords = JSON.parse(keysRaw);
+   }
+
+   if (requestedTracks.includes('vocal') && lyrics) {
+     sse(res, { type: 'progress', step: nextStep++, label: 'Vocalist mapping lyrics...' });
+     const vocalRaw = await callArrayAgent(client, VOCAL_SYSTEM, vocalUserPrompt, model);
+     vocalNotes = JSON.parse(vocalRaw);
+   }
+   ```
+
+6. **Update `GEN_STEPS`** in `index.tsx` to be dynamic based on selected tracks
+
+#### Files Changed
+
+| File | Action |
+|---|---|
+| `src/lib/schemas.ts` | Add MelodyNote, KeysChord, VocalNote schemas; update MidiData + ProducerDirective |
+| `src/pages/api/orchestrate-band.ts` | Add 3 new system prompts + conditional agent calls |
+| `src/lib/mockApiResponse.ts` | Add mock melody/keys/vocal data |
+| `src/pages/index.tsx` | Dynamic `GEN_STEPS` |
 
 ---
 
-## 7. File & Directory Structure
+### Phase 5.3: Tone.js Engine — New Instruments
 
-Target project structure upon completion:
+**Goal:** Add synths for melody, keys, and vocal tracks. Add per-track mute/solo.
+
+#### Steps
+
+1. **Add new synths to `src/lib/toneEngine.ts`**:
+
+   ```typescript
+   // Melody — bright FM lead
+   let _melodySynth: InstanceType<ToneModule['FMSynth']> | null = null;
+   let _melodyVol:   InstanceType<ToneModule['Volume']>  | null = null;
+
+   // Keys — warm polyphonic pad
+   let _keysSynth:   InstanceType<ToneModule['PolySynth']> | null = null;
+   let _keysVol:     InstanceType<ToneModule['Volume']>    | null = null;
+
+   // Vocal — AM synth with vocal-ish timbre
+   let _vocalSynth:  InstanceType<ToneModule['AMSynth']>  | null = null;
+   let _vocalVol:    InstanceType<ToneModule['Volume']>   | null = null;
+   ```
+
+   Initialize them in `getSynths()`:
+   ```typescript
+   if (!_melodyVol)  _melodyVol  = new Tone.Volume(-6).connect(_masterComp);
+   if (!_keysVol)    _keysVol    = new Tone.Volume(-8).connect(_masterComp);
+   if (!_vocalVol)   _vocalVol   = new Tone.Volume(-4).connect(_masterComp);
+
+   if (!_melodySynth) {
+     _melodySynth = new Tone.FMSynth({
+       harmonicity: 3,
+       modulationIndex: 10,
+       envelope: { attack: 0.01, decay: 0.15, sustain: 0.4, release: 0.3 },
+     }).connect(_melodyVol);
+   }
+
+   if (!_keysSynth) {
+     _keysSynth = new Tone.PolySynth(Tone.Synth, {
+       oscillator: { type: 'sine' },
+       envelope: { attack: 0.05, decay: 0.3, sustain: 0.6, release: 0.8 },
+     }).connect(_keysVol);
+     _keysSynth.maxPolyphony = 6;
+   }
+
+   if (!_vocalSynth) {
+     _vocalSynth = new Tone.AMSynth({
+       harmonicity: 2.5,
+       envelope: { attack: 0.05, decay: 0.2, sustain: 0.5, release: 0.4 },
+     }).connect(_vocalVol);
+   }
+   ```
+
+2. **Update `scheduleBand()`** to schedule new tracks:
+
+   ```typescript
+   // Melody Part
+   if (midiData.melody?.length) {
+     const melodyEvents = midiData.melody.map(note => ({
+       time: `${note.bar - 1}:${note.beat - 1}:0`,
+       note: note.note,
+       duration: note.duration,
+       velocity: note.velocity / 127,
+     }));
+     _melodyPart = new Tone.Part((t, ev) => {
+       melodySynth.triggerAttackRelease(ev.note, ev.duration, t, ev.velocity);
+     }, melodyEvents);
+     _melodyPart.loop = true;
+     _melodyPart.loopEnd = loopEnd;
+     _melodyPart.start(0);
+   }
+
+   // Keys Part (PolySynth — pass notes array)
+   if (midiData.keys?.length) {
+     const keysEvents = midiData.keys.map(chord => ({
+       time: `${chord.bar - 1}:${chord.beat - 1}:0`,
+       notes: chord.notes,
+       duration: chord.duration,
+       velocity: chord.velocity / 127,
+     }));
+     _keysPart = new Tone.Part((t, ev) => {
+       keysSynth.triggerAttackRelease(ev.notes, ev.duration, t, ev.velocity);
+     }, keysEvents);
+     _keysPart.loop = true;
+     _keysPart.loopEnd = loopEnd;
+     _keysPart.start(0);
+   }
+
+   // Vocal Part
+   if (midiData.vocal?.length) {
+     const vocalEvents = midiData.vocal.map(note => ({
+       time: `${note.bar - 1}:${note.beat - 1}:0`,
+       note: note.note,
+       duration: note.duration,
+       velocity: note.velocity / 127,
+     }));
+     _vocalPart = new Tone.Part((t, ev) => {
+       vocalSynth.triggerAttackRelease(ev.note, ev.duration, t, ev.velocity);
+     }, vocalEvents);
+     _vocalPart.loop = true;
+     _vocalPart.loopEnd = loopEnd;
+     _vocalPart.start(0);
+   }
+   ```
+
+3. **Add mute/solo functions**:
+
+   ```typescript
+   type TrackName = 'guitar' | 'bass' | 'drums' | 'melody' | 'keys' | 'vocal';
+
+   const volumeNodes: Record<TrackName, InstanceType<ToneModule['Volume']> | null> = {
+     guitar: _guitarVol, bass: _bassVol, drums: _drumsVol,
+     melody: _melodyVol, keys: _keysVol, vocal: _vocalVol,
+   };
+
+   export async function setTrackMute(track: TrackName, muted: boolean): Promise<void> {
+     await getSynths();
+     const vol = volumeNodes[track];
+     if (vol) vol.mute = muted;
+   }
+
+   export async function setTrackSolo(track: TrackName, solo: boolean): Promise<void> {
+     await getSynths();
+     // If solo-ing a track, mute all others; if un-solo-ing, unmute all
+     if (solo) {
+       for (const [name, vol] of Object.entries(volumeNodes)) {
+         if (vol) vol.mute = name !== track;
+       }
+     } else {
+       for (const vol of Object.values(volumeNodes)) {
+         if (vol) vol.mute = false;
+       }
+     }
+   }
+   ```
+
+4. **Update `setVolume()`** to handle `melody`, `keys`, `vocal` track names
+
+5. **Update `stopPlayback()`** to dispose new Parts
+
+#### Files Changed
+
+| File | Action |
+|---|---|
+| `src/lib/toneEngine.ts` | Add 3 synths, 3 volumes, scheduling, mute/solo |
+
+---
+
+### Phase 5.4: Production Board UI (GarageBand-style Mixer)
+
+**Goal:** Build a visual mixer/production board with per-track mute/solo/volume and a mini timeline.
+
+#### Steps
+
+1. **Create `src/components/ProductionBoard.tsx`**
+   - Container that renders a `TrackStrip` for each active track
+   - Embedded transport buttons (play/pause/stop)
+   - Export buttons (WAV / MIDI JSON)
+   - Playhead progress bar synced to `Tone.Transport`
+
+2. **Create `src/components/TrackStrip.tsx`**
+   - Single-row component for one track
+   - Props: `name, icon, color, muted, solo, volume, midiEvents[], onMute, onSolo, onVolume`
+   - Layout: `[icon + name] [M] [S] [volume slider] [mini timeline]`
+   - Mute button toggles between muted (dim) and active (bright)
+   - Solo button highlights when active, auto-mutes others
+
+3. **Create `src/components/MiniTimeline.tsx`**
+   - SVG-based horizontal bar visualizing note events as colored rectangles
+   - Props: `events: {startBeat, durationBeats}[], color, totalBeats, playheadPct`
+   - Each note event draws a small rectangle at the correct horizontal position
+   - A white vertical line represents the playhead
+   - Optionally: show syllable text above vocal notes
+
+4. **Create `src/hooks/usePlayhead.ts`**
+   ```typescript
+   export function usePlayhead(): number {
+     const [pct, setPct] = useState(0);
+     useEffect(() => {
+       let raf: number;
+       const tick = () => {
+         // Dynamic import to avoid SSR
+         import('tone').then(Tone => {
+           setPct(Tone.getTransport().progress * 100);
+         });
+         raf = requestAnimationFrame(tick);
+       };
+       raf = requestAnimationFrame(tick);
+       return () => cancelAnimationFrame(raf);
+     }, []);
+     return pct;
+   }
+   ```
+
+5. **Update `src/pages/index.tsx`**
+   - Add track state management:
+     ```typescript
+     type TrackState = { muted: boolean; solo: boolean; volume: number };
+     const [trackStates, setTrackStates] = useState<Record<string, TrackState>>({
+       guitar: { muted: false, solo: false, volume: 0 },
+       bass:   { muted: false, solo: false, volume: 0 },
+       drums:  { muted: false, solo: false, volume: 0 },
+       melody: { muted: false, solo: false, volume: 0 },
+       keys:   { muted: false, solo: false, volume: 0 },
+       vocal:  { muted: false, solo: false, volume: 0 },
+     });
+     ```
+   - Replace the footer `<TransportControls>` with `<ProductionBoard>`
+   - Wire mute/solo/volume handlers to `toneEngine` functions
+
+#### Files Changed
+
+| File | Action |
+|---|---|
+| `src/components/ProductionBoard.tsx` | **NEW** |
+| `src/components/TrackStrip.tsx` | **NEW** |
+| `src/components/MiniTimeline.tsx` | **NEW** |
+| `src/hooks/usePlayhead.ts` | **NEW** |
+| `src/pages/index.tsx` | Integrate production board, track state |
+| `src/components/TransportControls.tsx` | May retire or merge |
+
+---
+
+### Phase 5.5: Export Functionality
+
+**Goal:** Let users download their creation as WAV or MIDI JSON.
+
+#### Steps
+
+1. **WAV export — offline render** in `src/lib/toneEngine.ts`:
+
+   ```typescript
+   export async function exportToWav(midiData: MidiData, audioBlob?: Blob): Promise<Blob> {
+     const Tone = await getTone();
+     const barsSeconds = (midiData.total_bars * 4 * 60) / midiData.bpm;
+     const offline = new Tone.OfflineContext(2, barsSeconds + 0.5, 44100);
+
+     // Recreate synths in offline context
+     // Schedule all events
+     // Render
+     const buffer = await offline.render();
+
+     // Convert AudioBuffer → WAV using audiobuffer-to-wav
+     const wavArrayBuffer = audioBufferToWav(buffer);
+     return new Blob([wavArrayBuffer], { type: 'audio/wav' });
+   }
+   ```
+
+2. **MIDI JSON export** in `src/lib/exportHelpers.ts`:
+
+   ```typescript
+   export function downloadMidiJson(midiData: MidiData, filename = 'ai-band-midi.json') {
+     const json = JSON.stringify(midiData, null, 2);
+     const blob = new Blob([json], { type: 'application/json' });
+     const url = URL.createObjectURL(blob);
+     const a = document.createElement('a');
+     a.href = url; a.download = filename; a.click();
+     URL.revokeObjectURL(url);
+   }
+   ```
+
+3. **UI** — add export buttons to `ProductionBoard.tsx`:
+   - "⬇ WAV" — triggers offline render, shows progress spinner, then downloads
+   - "⬇ MIDI" — instant JSON download
+
+#### Files Changed
+
+| File | Action |
+|---|---|
+| `src/lib/toneEngine.ts` | Add `exportToWav()` |
+| `src/lib/exportHelpers.ts` | **NEW** — `downloadMidiJson()`, WAV encoding |
+| `src/components/ProductionBoard.tsx` | Add export buttons + loading state |
+| `package.json` | Add `audiobuffer-to-wav` dependency |
+
+---
+
+### Phase 5.6: Lyrics-Aware Generation & Vocal Track (Stretch Goal)
+
+**Goal:** When lyrics are provided, the AI considers syllable count, phrasing, and emotional tone to shape the arrangement and generates a vocal melody.
+
+#### Steps
+
+1. **Update Producer prompt** to incorporate lyrics analysis:
+   - Pre-process lyrics on the server: count lines, estimate syllables per line, detect verse/chorus patterns
+   - Pass this metadata to the Producer agent alongside the lyrics text
+   - Producer outputs `vocal_directive` with syllable-to-bar mapping hints
+
+2. **Add Vocal Agent** to the pipeline (see system prompt in Section 5):
+   - Only activated when `tracks` includes `vocal` AND lyrics are non-empty
+   - Input: lyrics text + Producer's vocal directive + musical context
+   - Output: `{bar, beat, note, duration, velocity, syllable}[]`
+
+3. **Update Tone.js vocal scheduling** — already handled in Phase 5.3
+
+4. **Update `MiniTimeline` for vocal track** — render syllable text labels above note blocks
+
+5. **Update mock data** with lyrics-based mock example
+
+#### Files Changed
+
+| File | Action |
+|---|---|
+| `src/pages/api/orchestrate-band.ts` | Lyrics pre-processing, vocal agent call |
+| `src/lib/mockApiResponse.ts` | Lyrics-based mock data |
+| `src/components/MiniTimeline.tsx` | Syllable label rendering |
+
+---
+
+## 8. File & Directory Structure
+
+Target project structure after Phase 5 completion:
 
 ```
 my-ai-band/
-├── .env.local                    # GRADIENT_API_KEY (git-ignored)
+├── .env.local                       # API keys (git-ignored)
 ├── next.config.ts
 ├── tsconfig.json
-├── tailwind.config.ts
 ├── package.json
-├── plan.md                       # This document
+├── plan.md                          # This document
 │
 ├── public/
-│   └── fonts/                    # JetBrains Mono if self-hosted
+│   └── fonts/
 │
 ├── src/
 │   ├── pages/
 │   │   ├── _app.tsx
 │   │   ├── _document.tsx
-│   │   ├── index.tsx             # Main app page
+│   │   ├── index.tsx                # Main app — input form + production board
 │   │   └── api/
-│   │       └── orchestrate-band.ts  # The core API route
+│   │       └── orchestrate-band.ts  # Multi-agent API (bass, drums, melody, keys, vocal)
 │   │
 │   ├── components/
-│   │   ├── StudioPanel.tsx       # Recording controls, waveform canvas, playback
-│   │   ├── AgentTerminal.tsx     # Typewriter terminal log display
-│   │   ├── TransportControls.tsx # Play/Pause/Stop + volume sliders
-│   │   └── StatusBadge.tsx       # IDLE/RECORDING/PROCESSING/PLAYING indicator
+│   │   ├── InputForm.tsx            # NEW — tabbed multi-modal input
+│   │   ├── ProductionBoard.tsx      # NEW — GarageBand-style mixer
+│   │   ├── TrackStrip.tsx           # NEW — single track row (mute/solo/vol/timeline)
+│   │   ├── MiniTimeline.tsx         # NEW — SVG note event visualizer
+│   │   ├── AgentTerminal.tsx        # Existing — typewriter log display
+│   │   ├── StudioPanel.tsx          # Existing — refactored as recording sub-component
+│   │   ├── TransportControls.tsx    # Existing — may merge into ProductionBoard
+│   │   └── StatusBadge.tsx          # Existing
 │   │
 │   ├── hooks/
-│   │   ├── useAudioRecorder.ts   # MediaRecorder abstraction
-│   │   └── useTypewriter.ts      # Character-by-character text reveal
+│   │   ├── useAudioRecorder.ts      # Existing
+│   │   ├── useTypewriter.ts         # Existing
+│   │   └── usePlayhead.ts           # NEW — Tone.Transport progress tracker
 │   │
 │   ├── lib/
-│   │   ├── toneEngine.ts         # Tone.js synth setup + scheduleBand() + startPlayback()
-│   │   ├── schemas.ts            # Zod schemas for API response validation
-│   │   └── mockApiResponse.ts    # Hardcoded mock for Phase 2 testing
+│   │   ├── toneEngine.ts            # Updated — new synths, mute/solo, export
+│   │   ├── schemas.ts               # Updated — melody, keys, vocal schemas
+│   │   ├── mockApiResponse.ts       # Updated — full 5-track mock
+│   │   └── exportHelpers.ts         # NEW — WAV encoding + JSON download
 │   │
 │   └── styles/
 │       └── globals.css
@@ -662,18 +884,38 @@ my-ai-band/
 
 ---
 
-## 8. Key Risks & Mitigations
+## 9. Key Risks & Mitigations
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| Gradient SDK produces malformed JSON from agents | Medium | Zod validation + retry logic with a fallback to mock data |
-| LLM hallucination generates out-of-range note names | Medium | Regex validation in Zod schema; clamp `velocity` 0–127 |
-| Audio sync drift between guitar and Tone.js | Medium | Both driven by `Tone.Transport`; ensure `Tone.start()` is called before loading `AudioBuffer` |
-| `getUserMedia` permission denied | Low | Catch `NotAllowedError`, show clear UI prompt explaining mic access requirement |
-| Large audio blob causes API route timeout (Vercel 10s limit) | High | Compress audio before upload; do NOT send the audio blob to the LLM (only send metadata: BPM, genre, key, duration); keep API route fast |
-| `formidable` incompatibility with Next.js edge runtime | Low | Ensure API route uses **Node.js runtime** (default for Pages Router), not Edge runtime |
-| Tone.js `AudioContext` suspended on load | Low | Always call `Tone.start()` inside a user gesture handler (click/tap event) |
+| LLM generates out-of-key melody notes | High | Post-process: snap notes to nearest pitch in the diatonic scale of the key |
+| Chord voicings from Keys agent are dissonant | Medium | Provide explicit voicing examples in prompt; Zod validation on notes array size |
+| Lyrics syllable mapping misaligns with beats | Medium | Pre-process lyrics server-side: count syllables per line, pass count to Vocal agent |
+| Too many sequential agent calls → slow latency | Medium | Run Bass + Drums in parallel (independent); run Melody + Keys + Vocal after Producer |
+| Offline WAV render freezes the browser | Low | Use `OfflineAudioContext`; show progress; limit to 8 bars max |
+| PolySynth chord scheduling causes glitches | Low | Limit to 4-note voicings; stagger attack by 5ms for natural feel |
+| Mobile browser AudioContext restrictions | Medium | Gate all Tone.js init behind user gesture; call `Tone.start()` on first click |
+| Large uploaded audio files | Low | Limit upload to 10MB; reject and show error if exceeded |
+| LLM wraps output in markdown fences | Medium | `extractJSON()` already handles this — same approach for new agents |
 
 ---
 
-> **Next Step:** Begin Phase 1 implementation. Start with `npm install`, Tailwind dark theme config, and the `useAudioRecorder` hook.
+## Implementation Priority (Hackathon Sprint)
+
+For maximum demo impact, implement in this order:
+
+| Priority | Phase | Est. Time | Impact |
+|---|---|---|---|
+| 1 | **5.1 — Input Form** | ~2h | Unlocks lyrics + text prompt (the key differentiator) |
+| 2 | **5.2 — Schemas + Agents** | ~2h | Generates melody + keys tracks |
+| 3 | **5.3 — Tone.js instruments** | ~1.5h | Makes new tracks audible |
+| 4 | **5.4 — Production Board** | ~3h | The visual "wow factor" GarageBand UI |
+| 5 | **5.5 — Export** | ~1.5h | Judges can download a WAV |
+| 6 | **5.6 — Vocal track** | ~2h | Stretch goal — impressive if shipped |
+
+> **Total estimate:** ~12 hours for all 6 sub-phases.  
+> **MVP for hackathon demo:** Phases 5.1–5.4 (~8.5 hours).
+
+---
+
+> **Next Step:** Begin Phase 5.1 — create `InputForm.tsx` with tabbed multi-modal input and track selection.
