@@ -24,10 +24,10 @@ function GenerationProgress({ step, label }: { step: number; label: string }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-mono text-[var(--primary)] font-bold tracking-widest animate-pulse">
+        <span className="text-xs font-mono text-primary font-bold tracking-widest animate-pulse">
           {label || 'INITIALIZING...'}
         </span>
-        <span className="text-xs font-mono text-[var(--muted-foreground)]">{pct}%</span>
+        <span className="text-xs font-mono text-muted-foreground">{pct}%</span>
       </div>
       <div className="retro-progress-track">
         <div className="retro-progress-fill" style={{ width: `${pct}%` }} />
@@ -35,9 +35,9 @@ function GenerationProgress({ step, label }: { step: number; label: string }) {
       <div className="flex gap-3">
         {GEN_STEPS.map((s) => (
           <div key={s.id} className={`retro-step ${
-            s.id < step  ? 'text-[var(--primary)]'  :
-            s.id === step ? 'text-[var(--primary)] animate-pulse' :
-            'text-[var(--muted-foreground)]'
+            s.id < step  ? 'text-primary'  :
+            s.id === step ? 'text-primary animate-pulse' :
+            'text-muted-foreground'
           }`}>
             <div className={`retro-step-dot ${
               s.id < step   ? 'done'    :
@@ -250,9 +250,9 @@ export default function Home() {
       <div className="scanlines min-h-screen bg-black text-white flex flex-col">
 
         {/* ── Header ── */}
-        <header className="border-b-2 border-[var(--border)] bg-black px-6 py-3 flex items-center justify-between shrink-0">
+        <header className="border-b-2 border-border bg-black px-6 py-3 flex items-center justify-between shrink-0">
           <div>
-            <h1 className="font-head text-xl text-[var(--primary)] tracking-widest">
+            <h1 className="font-head text-xl text-primary tracking-widest">
               ▶ VIRTUAL AI BAND
             </h1>
             <p className="text-xs text-blue-800 font-mono tracking-wider mt-0.5">
@@ -274,13 +274,13 @@ export default function Home() {
                 onClick={() => setUseMock((p) => !p)}
                 className={`relative w-9 h-5 cursor-pointer border-2 transition-colors ${
                   useMock
-                    ? 'bg-yellow-900 border-[var(--primary)]'
+                    ? 'bg-yellow-900 border-primary'
                     : 'bg-gray-900 border-gray-600'
                 }`}
               >
                 <span
                   className={`absolute top-0.5 w-3.5 h-3.5 transition-all ${
-                    useMock ? 'left-4 bg-[var(--primary)]' : 'left-0.5 bg-gray-500'
+                    useMock ? 'left-4 bg-primary' : 'left-0.5 bg-gray-500'
                   }`}
                 />
               </div>
@@ -295,7 +295,7 @@ export default function Home() {
         <main className="flex-1 grid md:grid-cols-2 overflow-hidden" style={{ minHeight: 0 }}>
 
           {/* Left — Studio Panel */}
-          <section className="flex flex-col border-r-2 border-[var(--border)] overflow-y-auto p-4 gap-4">
+          <section className="flex flex-col border-r-2 border-border overflow-y-auto p-4 gap-4">
             <span className="text-xs text-blue-700 tracking-widest font-mono">// STUDIO</span>
 
             <StudioPanel
@@ -366,7 +366,7 @@ export default function Home() {
         </main>
 
         {/* ── Transport Controls (footer) ── */}
-        <footer className="shrink-0 border-t-2 border-[var(--border)] p-4">
+        <footer className="shrink-0 border-t-2 border-border p-4">
           <TransportControls
             onPlay={handlePlay}
             onPause={handlePause}

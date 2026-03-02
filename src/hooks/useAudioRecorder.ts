@@ -43,11 +43,35 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     chunksRef.current = [];
 
     try {
+      if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+        throw new Error('Recording is only available in the browser.');
+      }
+
+      if (!window.isSecureContext) {
+        throw new Error('Microphone access requires a secure context (HTTPS or localhost).');
+      }
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Your browser does not support microphone recording.');
+      }
+
+      if (typeof MediaRecorder === 'undefined') {
+        throw new Error('MediaRecorder is not available in this browser.');
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       streamRef.current = stream;
 
       // Build analyser for waveform visualisation
-      const audioCtx = new AudioContext();
+      const AudioContextCtor =
+        window.AudioContext ||
+        (window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+
+      if (!AudioContextCtor) {
+        throw new Error('Web Audio API is not available in this browser.');
+      }
+
+      const audioCtx = new AudioContextCtor();
       audioContextRef.current = audioCtx;
       const source   = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
