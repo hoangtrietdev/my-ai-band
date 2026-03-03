@@ -1,60 +1,78 @@
-import MiniTimeline from './MiniTimeline';
+import WaveformBlock from './WaveformBlock';
 
 interface TrackStripProps {
-  name:      string;
-  icon:      string;
-  color:     string;
-  muted:     boolean;
-  solo:      boolean;
-  volume:    number;
-  events:    { startBeat: number; durationBeats: number; label?: string }[];
-  totalBeats: number;
+  name:        string;
+  icon:        string;
+  color:       string;
+  muted:       boolean;
+  solo:        boolean;
+  volume:      number;
+  events:      { startBeat: number; durationBeats: number; label?: string }[];
+  totalBeats:  number;
   playheadPct: number;
-  onMute:    () => void;
-  onSolo:    () => void;
-  onVolume:  (db: number) => void;
-  hasData:   boolean;
+  onMute:      () => void;
+  onSolo:      () => void;
+  onVolume:    (db: number) => void;
+  hasData:     boolean;
+  source:      'user' | 'ai' | 'empty';
+  /** Whether this track is armed for recording */
+  armed?:      boolean;
+  onArm?:      () => void;
+  /** Whether to show the arm-to-record button */
+  canRecord?:  boolean;
 }
 
 export default function TrackStrip({
   name, icon, color, muted, solo, volume,
   events, totalBeats, playheadPct,
   onMute, onSolo, onVolume, hasData,
+  source, armed = false, onArm, canRecord = false,
 }: TrackStripProps) {
   return (
-    <div
-      className={`flex items-center gap-2 px-3 py-2 border-b-2 border-border transition-opacity ${
-        muted ? 'opacity-40' : 'opacity-100'
-      }`}
-    >
+    <div className={`track-lane ${!hasData ? 'track-lane-empty' : ''}`}>
+      {/* Color stripe */}
+      <div className="track-color-stripe" style={{ background: color }} />
+
       {/* Track label */}
       <div className="flex items-center gap-1.5 w-20 shrink-0">
-        <span className="text-sm">{icon}</span>
-        <span className="text-xs font-mono font-bold tracking-wider uppercase" style={{ color }}>
+        <span className="text-base">{icon}</span>
+        <span className="text-xs font-semibold tracking-wide" style={{ color }}>
           {name}
         </span>
       </div>
 
-      {/* Mute button */}
+      {/* Arm to Record button (only for recordable tracks) */}
+      {canRecord ? (
+        <button
+          onClick={onArm}
+          className={`arm-record-btn ${armed ? 'armed' : ''}`}
+          title={armed ? 'Disarm' : 'Arm to record'}
+        >
+          <span className="arm-dot" />
+        </button>
+      ) : (
+        <div className="w-7 shrink-0" /> /* spacer */
+      )}
+
+      {/* M / S buttons */}
       <button
         onClick={onMute}
-        className={`w-7 h-7 text-xs font-mono font-bold border-2 flex items-center justify-center shrink-0 transition-colors ${
+        className={`w-6 h-6 text-[10px] font-bold rounded-md flex items-center justify-center shrink-0 transition-colors ${
           muted
-            ? 'bg-red-900 border-red-500 text-red-300'
-            : 'bg-secondary border-border text-muted-foreground hover:text-primary'
+            ? 'bg-red-500/30 text-red-300 ring-1 ring-red-500'
+            : 'bg-secondary text-muted-foreground hover:text-foreground ring-1 ring-border'
         }`}
         title={muted ? 'Unmute' : 'Mute'}
       >
         M
       </button>
 
-      {/* Solo button */}
       <button
         onClick={onSolo}
-        className={`w-7 h-7 text-xs font-mono font-bold border-2 flex items-center justify-center shrink-0 transition-colors ${
+        className={`w-6 h-6 text-[10px] font-bold rounded-md flex items-center justify-center shrink-0 transition-colors ${
           solo
-            ? 'bg-yellow-900 border-yellow-500 text-yellow-300'
-            : 'bg-secondary border-border text-muted-foreground hover:text-primary'
+            ? 'bg-yellow-500/30 text-yellow-300 ring-1 ring-yellow-500'
+            : 'bg-secondary text-muted-foreground hover:text-foreground ring-1 ring-border'
         }`}
         title={solo ? 'Unsolo' : 'Solo'}
       >
@@ -64,30 +82,22 @@ export default function TrackStrip({
       {/* Volume slider */}
       <input
         type="range"
-        min={-24}
-        max={6}
-        step={1}
+        min={-24} max={6} step={1}
         value={volume}
         onChange={(e) => onVolume(Number(e.target.value))}
-        className="w-16 shrink-0"
+        className="w-14 shrink-0"
         title={`${volume} dB`}
       />
 
-      {/* Mini timeline */}
-      <div className="flex-1 min-w-0">
-        {hasData ? (
-          <MiniTimeline
-            events={events}
-            color={color}
-            totalBeats={totalBeats}
-            playheadPct={playheadPct}
-          />
-        ) : (
-          <div className="h-7 bg-black/50 border-2 border-border flex items-center justify-center">
-            <span className="text-xs text-muted-foreground font-mono">—</span>
-          </div>
-        )}
-      </div>
+      {/* Waveform block */}
+      <WaveformBlock
+        events={events}
+        color={color}
+        totalBeats={totalBeats}
+        playheadPct={playheadPct}
+        hasData={hasData}
+        source={source}
+      />
     </div>
   );
 }

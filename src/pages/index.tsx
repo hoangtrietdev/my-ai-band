@@ -4,14 +4,21 @@ import dynamic from 'next/dynamic';
 import { useAudioRecorder } from '@/hooks/useAudioRecorder';
 import { MidiData, TrackName } from '@/lib/schemas';
 import { AppStatus } from '@/components/StatusBadge';
-import type { InputMode } from '@/components/InputForm';
-import type { TrackState } from '@/components/ProductionBoard';
+import type { TrackState, TrackSource } from '@/components/ProductionBoard';
 
 // Dynamically import heavy/browser-only components to avoid SSR issues
-const InputForm         = dynamic(() => import('@/components/InputForm'),         { ssr: false });
 const AgentTerminal     = dynamic(() => import('@/components/AgentTerminal'),     { ssr: false });
 const ProductionBoard   = dynamic(() => import('@/components/ProductionBoard'),   { ssr: false });
 const StatusBadge       = dynamic(() => import('@/components/StatusBadge'),       { ssr: false });
+const RecordModal       = dynamic(() => import('@/components/RecordModal'),       { ssr: false });
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const GENRES = ['jazz', 'pop', 'blues', 'funk', 'bossa nova', 'lo-fi', 'rock'];
+const KEYS = [
+  'C major', 'G major', 'D major', 'A major', 'E major', 'F major', 'Bb major',
+  'A minor', 'E minor', 'D minor', 'G minor', 'C minor',
+];
 
 // ─── Generation Progress Bar ─────────────────────────────────────────────────
 
@@ -20,13 +27,13 @@ function GenerationProgress({ step, label, totalSteps }: { step: number; label: 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-mono text-primary font-bold tracking-widest animate-pulse">
-          {label || 'INITIALIZING...'}
+        <span className="text-xs font-semibold text-primary animate-pulse">
+          {label || 'Initializing...'}
         </span>
-        <span className="text-xs font-mono text-muted-foreground">{pct}%</span>
+        <span className="text-xs text-muted-foreground">{pct}%</span>
       </div>
-      <div className="retro-progress-track">
-        <div className="retro-progress-fill" style={{ width: `${pct}%` }} />
+      <div className="daw-progress-track">
+        <div className="daw-progress-fill" style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -45,6 +52,17 @@ function defaultTrackStates(): Record<TrackName, TrackState> {
   };
 }
 
+function defaultTrackSources(): Record<TrackName, TrackSource> {
+  return {
+    guitar: 'empty',
+    bass:   'empty',
+    drums:  'empty',
+    melody: 'empty',
+    keys:   'empty',
+    vocal:  'empty',
+  };
+}
+
 export default function Home() {
   // ─── Session parameters ──────────────────────────────────────────────────
   const [bpm,        setBpm]        = useState(120);
@@ -52,13 +70,9 @@ export default function Home() {
   const [musicalKey, setMusicalKey] = useState('C major');
   const [bars,       setBars]       = useState(4);
 
-  // ─── Input mode & content ────────────────────────────────────────────────
-  const [inputMode,      setInputMode]      = useState<InputMode>('record');
-  const [lyrics,         setLyrics]         = useState('');
+  // ─── Band Prompt (text description) ──────────────────────────────────────
   const [prompt,         setPrompt]         = useState('');
-  const [uploadName,     setUploadName]     = useState<string | null>(null);
   const [uploadBlob,     setUploadBlob]     = useState<Blob | null>(null);
-  const [selectedTracks, setSelectedTracks] = useState<TrackName[]>(['bass', 'drums']);
 
   // ─── App state ───────────────────────────────────────────────────────────
   const [appStatus,   setAppStatus]   = useState<AppStatus>('idle');
@@ -76,6 +90,14 @@ export default function Home() {
   const [isPlaying,   setIsPlaying]   = useState(false);
   const [trackStates, setTrackStates] = useState<Record<TrackName, TrackState>>(defaultTrackStates);
 
+  // ─── Track sources (GarageBand: empty / ai / user) ────────────────────────
+  const [trackSources, setTrackSources] = useState<Record<TrackName, TrackSource>>(defaultTrackSources);
+
+  // ─── Recording (arm-to-record workflow) ───────────────────────────────────
+  const [armedTrack,    setArmedTrack]    = useState<TrackName | null>(null);
+  const [showRecordModal, setShowRecordModal] = useState(false);
+  const [logExpanded,   setLogExpanded]   = useState(false);
+
   // ─── Audio recording ──────────────────────────────────────────────────────
   const {
     state: recordingState,
@@ -91,6 +113,7 @@ export default function Home() {
 
   // Effective audio — either recorded or uploaded
   const effectiveAudio = audioBlob || uploadBlob;
+  const selectedTracks: TrackName[] = ['bass', 'drums', 'melody', 'keys', 'vocal'];
 
   // ─── Derived status ───────────────────────────────────────────────────────
   const derivedStatus: AppStatus =
@@ -100,8 +123,8 @@ export default function Home() {
 
   // ─── Generate Band ────────────────────────────────────────────────────────
   const handleGenerate = useCallback(async () => {
-    if (!effectiveAudio && !lyrics && !prompt && !useMock) {
-      setApiError('Please record audio, upload a file, enter lyrics, or type a prompt — or enable Mock Mode.');
+    if (!effectiveAudio && !prompt && !useMock) {
+      setApiError('Please record audio, or type a prompt — or enable Mock Mode.');
       return;
     }
 
@@ -147,7 +170,6 @@ export default function Home() {
       } else {
         const formData = new FormData();
         if (effectiveAudio) formData.append('audio', effectiveAudio, 'recording.webm');
-        if (lyrics)         formData.append('lyrics', lyrics);
         if (prompt)         formData.append('prompt', prompt);
         formData.append('bpm',             String(bpm));
         formData.append('genre',           genre);
@@ -216,6 +238,18 @@ export default function Home() {
       setAppStatus('ready');
       setGenStep(0);
 
+      // Update track sources — mark AI-generated tracks
+      setTrackSources(prev => {
+        const next = { ...prev };
+        if (finalMidiData.melody?.length)  next.melody = 'ai';
+        if (finalMidiData.keys?.length)    next.keys   = 'ai';
+        if (finalMidiData.bass?.length)    next.bass   = 'ai';
+        if (finalMidiData.drums?.length)   next.drums  = 'ai';
+        if (finalMidiData.vocal?.length)   next.vocal  = 'ai';
+        if (effectiveAudio)                next.guitar = 'user';
+        return next;
+      });
+
       const { scheduleBand, loadGuitarTrack } = await import('@/lib/toneEngine');
       await scheduleBand(finalMidiData);
       if (effectiveAudio) await loadGuitarTrack(effectiveAudio);
@@ -225,7 +259,7 @@ export default function Home() {
       setAppStatus('error');
       setGenStep(0);
     }
-  }, [effectiveAudio, bpm, genre, musicalKey, bars, durationSeconds, useMock, lyrics, prompt, selectedTracks]);
+  }, [effectiveAudio, bpm, genre, musicalKey, bars, durationSeconds, useMock, prompt, selectedTracks]);
 
   // ─── Transport handlers ───────────────────────────────────────────────────
   const handlePlay = useCallback(async () => {
@@ -283,10 +317,29 @@ export default function Home() {
   }, []);
 
   // ─── Upload handler ───────────────────────────────────────────────────────
-  const handleUpload = useCallback((blob: Blob, name: string) => {
+  const handleUpload = useCallback((blob: Blob) => {
     setUploadBlob(blob);
-    setUploadName(name);
   }, []);
+
+  // ─── Arm-to-record handler ────────────────────────────────────────────────
+  const handleArmTrack = useCallback((track: TrackName) => {
+    if (armedTrack === track) {
+      // Disarm
+      setArmedTrack(null);
+    } else {
+      setArmedTrack(track);
+      setShowRecordModal(true);
+    }
+  }, [armedTrack]);
+
+  // When recording is accepted via the modal
+  const handleAcceptRecording = useCallback(() => {
+    if (armedTrack && audioBlob) {
+      setTrackSources(prev => ({ ...prev, [armedTrack]: 'user' as TrackSource }));
+    }
+    setShowRecordModal(false);
+    setArmedTrack(null);
+  }, [armedTrack, audioBlob]);
 
   // ─── Export handler ───────────────────────────────────────────────────────
   const handleExportJson = useCallback(async () => {
@@ -299,6 +352,20 @@ export default function Home() {
   const isProcessing = appStatus === 'processing';
   const hasBand      = midiData !== null;
 
+  // Track label for record modal
+  const armedTrackLabel = armedTrack
+    ? armedTrack.charAt(0).toUpperCase() + armedTrack.slice(1)
+    : '';
+
+  const TRACK_COLORS: Record<TrackName, string> = {
+    guitar: 'var(--track-audio)',
+    melody: 'var(--track-midi)',
+    keys:   'var(--track-midi)',
+    bass:   'var(--track-midi)',
+    drums:  'var(--track-drums)',
+    vocal:  'var(--track-vocal)',
+  };
+
   return (
     <>
       <Head>
@@ -308,139 +375,208 @@ export default function Home() {
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      <div className="scanlines min-h-screen md:h-screen bg-black text-white flex flex-col md:overflow-hidden">
+      <div className="min-h-screen md:h-screen bg-background text-foreground flex flex-col md:overflow-hidden">
 
-        {/* ── Header ── */}
-        <header className="border-b-2 border-border bg-black px-6 py-3 flex items-center justify-between shrink-0">
-          <div>
-            <h1 className="font-head text-xl text-primary tracking-widest">
-              ▶ VIRTUAL AI BAND
-            </h1>
-            <p className="text-xs text-blue-800 font-mono tracking-wider mt-0.5">
-              {process.env.NEXT_PUBLIC_IS_GROQ === 'true'
-                ? 'Powered by Groq · llama-3.3-70b-versatile'
-                : 'Powered by DigitalOcean Gradient'} · Multi-Agent Production Board
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <span className="retro-badge text-xs font-mono">
-              {process.env.NEXT_PUBLIC_IS_GROQ === 'true' ? '⚡ GROQ' : '☁ GRADIENT'}
-            </span>
-
-            <label className="flex items-center gap-2 text-xs font-mono cursor-pointer select-none">
-              <div
-                onClick={() => setUseMock((p) => !p)}
-                className={`relative w-9 h-5 cursor-pointer border-2 transition-colors ${
-                  useMock
-                    ? 'bg-yellow-900 border-primary'
-                    : 'bg-gray-900 border-gray-600'
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 w-3.5 h-3.5 transition-all ${
-                    useMock ? 'left-4 bg-primary' : 'left-0.5 bg-gray-500'
-                  }`}
-                />
-              </div>
-              MOCK
-            </label>
-
-            <StatusBadge status={derivedStatus} />
-          </div>
-        </header>
-
-        {/* ── Main layout ── */}
-        <main className="flex-1 grid md:grid-cols-2 min-h-0 overflow-y-auto md:overflow-hidden">
-
-          {/* Left — Input Form */}
-          <section className="flex flex-col border-r-2 border-border overflow-y-auto p-4 gap-4">
-            <span className="text-xs text-blue-700 tracking-widest font-mono">// STUDIO INPUT</span>
-
-            <InputForm
-              recordingState={recordingState}
-              durationSeconds={durationSeconds}
-              audioUrl={audioUrl}
-              analyserNode={analyserNode}
-              bpm={bpm}               setBpm={setBpm}
-              genre={genre}           setGenre={setGenre}
-              musicalKey={musicalKey} setMusicalKey={setMusicalKey}
-              bars={bars}             setBars={setBars}
-              lyrics={lyrics}         setLyrics={setLyrics}
-              prompt={prompt}         setPrompt={setPrompt}
-              inputMode={inputMode}   setInputMode={setInputMode}
-              selectedTracks={selectedTracks} setSelectedTracks={setSelectedTracks}
-              uploadName={uploadName}
-              onUpload={handleUpload}
-              onStartRec={startRecording}
-              onStopRec={stopRecording}
-              onClearRec={() => {
-                clearRecording();
-                setUploadBlob(null);
-                setUploadName(null);
-                setAppStatus('idle');
-                setMidiData(null);
-                setStreamLogs([]);
-                setApiError(null);
-              }}
-              recError={recError}
-              onGenerate={handleGenerate}
-              isProcessing={isProcessing}
-              disabled={isProcessing}
-            />
-
-            {/* Generation progress bar */}
-            {isProcessing && genStep > 0 && (
-              <GenerationProgress step={genStep} label={genLabel} totalSteps={genTotal} />
-            )}
-
-            {useMock && (
-              <p className="text-xs font-mono text-center border-2 border-yellow-600 text-yellow-500 py-1.5">
-                ⚠ MOCK MODE — no audio required, no API calls
-              </p>
-            )}
-          </section>
-
-          {/* Right — Agent Terminal */}
-          <section className="flex flex-col p-4 gap-4 h-[500px] md:h-auto overflow-hidden">
-            <div className="flex items-center justify-between shrink-0">
-              <span className="text-xs text-blue-700 tracking-widest font-mono">// AGENT LOG</span>
-              {midiData && (
-                <span className="text-xs text-blue-700 font-mono">
-                  {midiData.total_bars} bars · {midiData.bpm} BPM
-                </span>
-              )}
+        {/* ── Header — Band Prompt + Session Toolbar ── */}
+        <header className="border-b border-border bg-card px-5 py-3 shrink-0">
+          {/* Top row: branding + status */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <h1 className="font-head text-lg font-extrabold tracking-tight">
+                🎵 Virtual AI Band
+              </h1>
+              <span className="text-xs text-muted-foreground hidden sm:inline">
+                {process.env.NEXT_PUBLIC_IS_GROQ === 'true'
+                  ? 'Groq · llama-3.3-70b'
+                  : 'DigitalOcean Gradient'}
+              </span>
             </div>
 
-            <div className="flex-1 overflow-hidden min-h-0">
-              <AgentTerminal
-                logs={streamLogs}
-                active={hasBand || isProcessing}
-                isLoading={isProcessing && streamLogs.length === 0}
-                error={apiError}
+            <div className="flex items-center gap-3">
+              {/* Mock toggle */}
+              <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+                <div
+                  onClick={() => setUseMock((p) => !p)}
+                  className={`relative w-9 h-5 cursor-pointer rounded-full transition-colors ${
+                    useMock
+                      ? 'bg-amber-600'
+                      : 'bg-secondary'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-4 h-4 rounded-full transition-all ${
+                      useMock ? 'left-4.5 bg-white' : 'left-0.5 bg-muted-foreground'
+                    }`}
+                  />
+                </div>
+                <span className="text-muted-foreground">Mock</span>
+              </label>
+
+              <StatusBadge status={derivedStatus} />
+            </div>
+          </div>
+
+          {/* Band Prompt bar + session params */}
+          <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-end">
+            {/* Prompt input — the star */}
+            <div className="flex-1">
+              <label className="text-xs font-semibold text-muted-foreground mb-1 block">Band Prompt</label>
+              <input
+                type="text"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !isProcessing && handleGenerate()}
+                placeholder="Describe the music you want — e.g. 'chill lo-fi beat with jazzy piano chords'..."
+                className="daw-input w-full text-sm"
+                disabled={isProcessing}
               />
             </div>
+
+            {/* Session param controls */}
+            <div className="flex gap-2 items-end flex-wrap">
+              {/* BPM */}
+              <div className="w-20">
+                <label className="text-xs text-muted-foreground mb-1 block">BPM</label>
+                <input
+                  type="number" min={40} max={240} step={1}
+                  value={bpm} onChange={(e) => setBpm(Number(e.target.value))}
+                  className="daw-input text-center text-sm"
+                />
+              </div>
+
+              {/* Genre */}
+              <div className="w-32">
+                <label className="text-xs text-muted-foreground mb-1 block">Genre</label>
+                <select value={genre} onChange={(e) => setGenre(e.target.value)} className="daw-input text-sm">
+                  {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
+                </select>
+              </div>
+
+              {/* Key */}
+              <div className="w-28">
+                <label className="text-xs text-muted-foreground mb-1 block">Key</label>
+                <select value={musicalKey} onChange={(e) => setMusicalKey(e.target.value)} className="daw-input text-sm">
+                  {KEYS.map(k => <option key={k} value={k}>{k}</option>)}
+                </select>
+              </div>
+
+              {/* Bars */}
+              <div className="w-16">
+                <label className="text-xs text-muted-foreground mb-1 block">Bars</label>
+                <input
+                  type="number" min={2} max={16} step={1}
+                  value={bars} onChange={(e) => setBars(Number(e.target.value))}
+                  className="daw-input text-center text-sm"
+                />
+              </div>
+
+              {/* Generate button */}
+              <button
+                onClick={handleGenerate}
+                disabled={isProcessing || recordingState === 'recording'}
+                className="daw-btn daw-btn-primary h-9.5 px-6 text-sm whitespace-nowrap"
+              >
+                {isProcessing
+                  ? <span className="animate-pulse">Generating...</span>
+                  : <span>🎵 Generate Band</span>
+                }
+              </button>
+            </div>
+          </div>
+
+          {/* Generation progress bar */}
+          {isProcessing && genStep > 0 && (
+            <div className="mt-3">
+              <GenerationProgress step={genStep} label={genLabel} totalSteps={genTotal} />
+            </div>
+          )}
+
+          {/* Error banner */}
+          {apiError && (
+            <div className="mt-3 text-sm text-red-400 p-3 rounded-lg bg-red-950/30 border border-red-500/40">
+              {apiError}
+            </div>
+          )}
+
+          {useMock && (
+            <p className="mt-2 text-xs text-center rounded-lg bg-amber-900/30 border border-amber-600/40 text-amber-400 py-1.5">
+              ⚠ Mock Mode — no audio required, no API calls
+            </p>
+          )}
+        </header>
+
+        {/* ── Main content — Production Board + Agent Log ── */}
+        <main className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden">
+
+          {/* Production Board — the star of the show */}
+          <section className="flex-1 flex flex-col p-3 min-h-0 overflow-hidden">
+            <ProductionBoard
+              midiData={midiData}
+              hasAudio={!!effectiveAudio}
+              trackStates={trackStates}
+              trackSources={trackSources}
+              isPlaying={isPlaying}
+              isReady={isReady}
+              onPlay={handlePlay}
+              onPause={handlePause}
+              onStop={handleStop}
+              onMute={handleMute}
+              onSolo={handleSolo}
+              onVolume={handleVolume}
+              onExportJson={handleExportJson}
+              armedTrack={armedTrack}
+              onArmTrack={handleArmTrack}
+            />
+          </section>
+
+          {/* Agent Log — collapsible side panel */}
+          <section
+            className={`border-t md:border-t-0 md:border-l border-border transition-all overflow-hidden flex flex-col ${
+              logExpanded ? 'h-100 md:h-auto md:w-90' : 'h-10 md:h-auto md:w-10'
+            }`}
+          >
+            {/* Toggle button */}
+            <button
+              onClick={() => setLogExpanded(p => !p)}
+              className="shrink-0 flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors bg-secondary/50"
+              title={logExpanded ? 'Collapse log' : 'Expand log'}
+            >
+              <span className={`transition-transform ${logExpanded ? 'rotate-90' : '-rotate-90 md:rotate-0'}`}>▶</span>
+              {logExpanded && <span className="font-semibold">Agent Log</span>}
+              {!logExpanded && <span className="md:hidden font-semibold">Log</span>}
+            </button>
+
+            {logExpanded && (
+              <div className="flex-1 overflow-hidden min-h-0">
+                <AgentTerminal
+                  logs={streamLogs}
+                  active={hasBand || isProcessing}
+                  isLoading={isProcessing && streamLogs.length === 0}
+                  error={apiError}
+                />
+              </div>
+            )}
           </section>
         </main>
-
-        {/* ── Production Board (mixer + transport) ── */}
-        <footer className="shrink-0 border-t-2 border-border">
-          <ProductionBoard
-            midiData={midiData}
-            hasAudio={!!effectiveAudio}
-            trackStates={trackStates}
-            isPlaying={isPlaying}
-            isReady={isReady}
-            onPlay={handlePlay}
-            onPause={handlePause}
-            onStop={handleStop}
-            onMute={handleMute}
-            onSolo={handleSolo}
-            onVolume={handleVolume}
-            onExportJson={handleExportJson}
-          />
-        </footer>
       </div>
+
+      {/* ── Record Modal (arm-to-record workflow) ── */}
+      {showRecordModal && armedTrack && (
+        <RecordModal
+          trackName={armedTrackLabel}
+          trackColor={TRACK_COLORS[armedTrack]}
+          recordingState={recordingState}
+          durationSeconds={durationSeconds}
+          audioUrl={audioUrl}
+          analyserNode={analyserNode}
+          onStartRec={startRecording}
+          onStopRec={stopRecording}
+          onClearRec={clearRecording}
+          onAccept={handleAcceptRecording}
+          onCancel={() => { setShowRecordModal(false); setArmedTrack(null); }}
+          recError={recError}
+        />
+      )}
     </>
   );
 }

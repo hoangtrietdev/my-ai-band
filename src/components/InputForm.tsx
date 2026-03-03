@@ -195,7 +195,7 @@ export default function InputForm({
       </div>
 
       {/* ── Tab content ── */}
-      <div className="retro-panel overflow-hidden min-h-[160px]">
+      <div className="retro-panel overflow-hidden min-h-40">
         <div className="retro-panel-header">
           <span className="text-xs text-blue-500 font-mono tracking-widest">
             {inputMode === 'record' ? 'MICROPHONE' :
