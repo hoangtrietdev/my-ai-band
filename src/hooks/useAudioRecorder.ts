@@ -28,15 +28,19 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   const audioContextRef   = useRef<AudioContext | null>(null);
   const startTimeRef      = useRef<number>(0);
   const timerRef          = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioUrlRef        = useRef<string | null>(null);
 
-  // Clean up object URL on unmount
+  // Keep ref in sync for cleanup
+  useEffect(() => { audioUrlRef.current = audioUrl; }, [audioUrl]);
+
+  // Clean up object URL on unmount only
   useEffect(() => {
     return () => {
-      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
       if (timerRef.current) clearInterval(timerRef.current);
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
-  }, [audioUrl]);
+  }, []);
 
   const startRecording = useCallback(async () => {
     setError(null);

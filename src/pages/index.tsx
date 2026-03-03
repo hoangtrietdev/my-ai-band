@@ -123,7 +123,8 @@ export default function Home() {
       let finalMidiData: MidiData;
 
       if (useMock) {
-        const { MOCK_RESPONSE } = await import('@/lib/mockApiResponse');
+        const { generateMockResponse } = await import('@/lib/mockApiResponse');
+        const mockResult = generateMockResponse({ bpm, bars, musicalKey, genre, selectedTracks });
         setGenStep(1); setGenLabel('Producer analyzing session...');
         setStreamLogs(prev => [...prev, `[System] BPM: ${bpm}  |  Genre: ${genre.toUpperCase()}  |  Key: ${musicalKey}  |  Bars: ${bars}`]);
         await new Promise((r) => setTimeout(r, 400));
@@ -141,8 +142,8 @@ export default function Home() {
         }
         setGenStep(steps); setGenLabel('Compiling & validating...');
         await new Promise((r) => setTimeout(r, 200));
-        finalMidiData = MOCK_RESPONSE.midi_data;
-        setStreamLogs(MOCK_RESPONSE.logs);
+        finalMidiData = mockResult.midi_data;
+        setStreamLogs(mockResult.logs);
       } else {
         const formData = new FormData();
         if (effectiveAudio) formData.append('audio', effectiveAudio, 'recording.webm');
@@ -256,18 +257,17 @@ export default function Home() {
   }, []);
 
   const handleMute = useCallback(async (track: TrackName) => {
-    const newMuted = !trackStates[track].muted;
-    const { setTrackMute } = await import('@/lib/toneEngine');
-    await setTrackMute(track, newMuted);
-    setTrackStates(prev => ({ ...prev, [track]: { ...prev[track], muted: newMuted } }));
-  }, [trackStates]);
+    setTrackStates(prev => {
+      const newMuted = !prev[track].muted;
+      import('@/lib/toneEngine').then(({ setTrackMute }) => setTrackMute(track, newMuted));
+      return { ...prev, [track]: { ...prev[track], muted: newMuted } };
+    });
+  }, []);
 
   const handleSolo = useCallback(async (track: TrackName) => {
-    const newSolo = !trackStates[track].solo;
-    const { setTrackSolo } = await import('@/lib/toneEngine');
-    await setTrackSolo(track, newSolo);
-    // Update all track states to reflect solo
     setTrackStates(prev => {
+      const newSolo = !prev[track].solo;
+      import('@/lib/toneEngine').then(({ setTrackSolo }) => setTrackSolo(track, newSolo));
       const next = { ...prev };
       if (newSolo) {
         for (const t of Object.keys(next) as TrackName[]) {
@@ -280,7 +280,7 @@ export default function Home() {
       }
       return next;
     });
-  }, [trackStates]);
+  }, []);
 
   // ─── Upload handler ───────────────────────────────────────────────────────
   const handleUpload = useCallback((blob: Blob, name: string) => {
@@ -308,7 +308,7 @@ export default function Home() {
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      <div className="scanlines min-h-screen bg-black text-white flex flex-col">
+      <div className="scanlines min-h-screen md:h-screen bg-black text-white flex flex-col md:overflow-hidden">
 
         {/* ── Header ── */}
         <header className="border-b-2 border-border bg-black px-6 py-3 flex items-center justify-between shrink-0">
@@ -351,7 +351,7 @@ export default function Home() {
         </header>
 
         {/* ── Main layout ── */}
-        <main className="flex-1 grid md:grid-cols-2 overflow-hidden" style={{ minHeight: 0 }}>
+        <main className="flex-1 grid md:grid-cols-2 min-h-0 overflow-y-auto md:overflow-hidden">
 
           {/* Left — Input Form */}
           <section className="flex flex-col border-r-2 border-border overflow-y-auto p-4 gap-4">
@@ -394,18 +394,6 @@ export default function Home() {
               <GenerationProgress step={genStep} label={genLabel} totalSteps={genTotal} />
             )}
 
-            {/* Generate Band button */}
-            <button
-              onClick={handleGenerate}
-              disabled={isProcessing || recordingState === 'recording'}
-              className="retro-btn retro-btn-primary w-full py-4 text-sm"
-            >
-              {isProcessing
-                ? <span className="animate-pulse">⬡ GENERATING BAND...</span>
-                : <span>⬡ GENERATE BAND</span>
-              }
-            </button>
-
             {useMock && (
               <p className="text-xs font-mono text-center border-2 border-yellow-600 text-yellow-500 py-1.5">
                 ⚠ MOCK MODE — no audio required, no API calls
@@ -414,17 +402,17 @@ export default function Home() {
           </section>
 
           {/* Right — Agent Terminal */}
-          <section className="flex flex-col overflow-hidden p-4 gap-4" style={{ minHeight: '400px' }}>
+          <section className="flex flex-col p-4 gap-4 h-[500px] md:h-auto overflow-hidden">
             <div className="flex items-center justify-between shrink-0">
               <span className="text-xs text-blue-700 tracking-widest font-mono">// AGENT LOG</span>
-              {hasBand && (
+              {midiData && (
                 <span className="text-xs text-blue-700 font-mono">
-                  {midiData!.total_bars} bars · {midiData!.bpm} BPM
+                  {midiData.total_bars} bars · {midiData.bpm} BPM
                 </span>
               )}
             </div>
 
-            <div className="flex-1 overflow-hidden" style={{ minHeight: 0 }}>
+            <div className="flex-1 overflow-hidden min-h-0">
               <AgentTerminal
                 logs={streamLogs}
                 active={hasBand || isProcessing}

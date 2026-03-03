@@ -10,7 +10,7 @@ interface AgentTerminalProps {
 
 /** Color-code log lines by agent prefix */
 function colorize(line: string): React.ReactNode {
-  if (line.startsWith('[Producer →') || line.startsWith('[Bass →') || line.startsWith('[Drums →')) {
+  if (/^\[(Producer|Bass|Drums|Melody|Keys|Vocal) →/.test(line)) {
     // Inter-agent messages — dim
     const match = line.match(/^(\[[^\]]+\])(.*)/);
     if (match) {
@@ -33,6 +33,18 @@ function colorize(line: string): React.ReactNode {
   if (line.startsWith('[Drums]')) {
     const rest = line.slice(7);
     return <><span className="text-fuchsia-400 font-bold">[Drums]</span><span className="text-fuchsia-200">{rest}</span></>;
+  }
+  if (line.startsWith('[Melody]')) {
+    const rest = line.slice(8);
+    return <><span className="text-green-400 font-bold">[Melody]</span><span className="text-green-200">{rest}</span></>;
+  }
+  if (line.startsWith('[Keys]')) {
+    const rest = line.slice(6);
+    return <><span className="text-cyan-400 font-bold">[Keys]</span><span className="text-cyan-200">{rest}</span></>;
+  }
+  if (line.startsWith('[Vocal]')) {
+    const rest = line.slice(7);
+    return <><span className="text-rose-400 font-bold">[Vocal]</span><span className="text-rose-200">{rest}</span></>;
   }
   if (line.startsWith('[System]')) {
     const rest = line.slice(8);

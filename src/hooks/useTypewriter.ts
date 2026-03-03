@@ -77,8 +77,10 @@ export function useTypewriter(
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
+    // charDelay, lineDelay, and onComplete are config — intentionally excluded
+    // to avoid restarting the typewriter mid-animation when parent re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active]);
+  }, [active, lines]);
 
   return { displayedLines, isTyping, reset };
 }
