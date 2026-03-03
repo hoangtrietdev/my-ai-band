@@ -17,9 +17,9 @@ export default function StatusBadge({ status }: StatusBadgeProps) {
   const cfg = STATUS_CONFIG[status];
 
   return (
-    <span className="retro-badge inline-flex items-center gap-1.5">
+    <span className="daw-badge bg-secondary text-foreground inline-flex items-center gap-1.5">
       <span
-        className={`w-2 h-2 ${cfg.dotColor} ${cfg.pulse ? 'animate-pulse' : ''}`}
+        className={`w-2 h-2 rounded-full ${cfg.dotColor} ${cfg.pulse ? 'animate-pulse' : ''}`}
         style={{ display: 'inline-block' }}
       />
       {cfg.label}

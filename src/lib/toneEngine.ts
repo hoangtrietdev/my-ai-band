@@ -3,7 +3,7 @@
  * All exports are async functions that dynamic-import Tone only in the browser.
  */
 
-import type { MidiData } from './schemas';
+import type { MidiData, TrackName } from './schemas';
 
 type ToneModule = typeof import('tone');
 
@@ -18,24 +18,36 @@ async function getTone(): Promise<ToneModule> {
 
 // ─── Synth instances (lazy singletons) ───────────────────────────────────────
 
-let _bassSynth: InstanceType<ToneModule['Synth']> | null = null;
-let _kickSynth: InstanceType<ToneModule['MembraneSynth']> | null = null;
-let _snareSynth: InstanceType<ToneModule['NoiseSynth']> | null = null;
-let _rideSynth: InstanceType<ToneModule['MetalSynth']> | null = null;
-let _hihatSynth: InstanceType<ToneModule['MetalSynth']> | null = null;
+let _bassSynth:   InstanceType<ToneModule['Synth']> | null = null;
+let _kickSynth:   InstanceType<ToneModule['MembraneSynth']> | null = null;
+let _snareSynth:  InstanceType<ToneModule['NoiseSynth']> | null = null;
+let _rideSynth:   InstanceType<ToneModule['MetalSynth']> | null = null;
+let _hihatSynth:  InstanceType<ToneModule['MetalSynth']> | null = null;
 let _guitarPlayer: InstanceType<ToneModule['Player']> | null = null;
+let _melodySynth: InstanceType<ToneModule['FMSynth']> | null = null;
+let _keysSynth:   InstanceType<ToneModule['PolySynth']> | null = null;
+let _vocalSynth:  InstanceType<ToneModule['AMSynth']> | null = null;
 
-let _bassVol: InstanceType<ToneModule['Volume']> | null = null;
-let _drumsVol: InstanceType<ToneModule['Volume']> | null = null;
-let _guitarVol: InstanceType<ToneModule['Volume']> | null = null;
+let _bassVol:    InstanceType<ToneModule['Volume']> | null = null;
+let _drumsVol:   InstanceType<ToneModule['Volume']> | null = null;
+let _guitarVol:  InstanceType<ToneModule['Volume']> | null = null;
+let _melodyVol:  InstanceType<ToneModule['Volume']> | null = null;
+let _keysVol:    InstanceType<ToneModule['Volume']> | null = null;
+let _vocalVol:   InstanceType<ToneModule['Volume']> | null = null;
 let _masterComp: InstanceType<ToneModule['Compressor']> | null = null;
 let _drumsReverb: InstanceType<ToneModule['Reverb']> | null = null;
 let _bassFilter: InstanceType<ToneModule['Filter']> | null = null;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _bassPart:  any = null;
+let _bassPart:   any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _drumsPart: any = null;
+let _drumsPart:  any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _melodyPart: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _keysPart:   any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _vocalPart:  any = null;
 
 async function getSynths() {
   const Tone = await getTone();
@@ -55,6 +67,9 @@ async function getSynths() {
   if (!_bassVol)   _bassVol   = new Tone.Volume(-2).connect(_masterComp);
   if (!_drumsVol)  _drumsVol  = new Tone.Volume(-4).connect(_masterComp);
   if (!_guitarVol) _guitarVol = new Tone.Volume(-6).connect(_masterComp);
+  if (!_melodyVol) _melodyVol = new Tone.Volume(-6).connect(_masterComp);
+  if (!_keysVol)   _keysVol   = new Tone.Volume(-8).connect(_masterComp);
+  if (!_vocalVol)  _vocalVol  = new Tone.Volume(-4).connect(_masterComp);
 
   // ── Drums reverb (short room reverb for realism) ──────────────────────────
   if (!_drumsReverb) {
@@ -121,7 +136,38 @@ async function getSynths() {
     _hihatSynth.volume.value    = -20;
   }
 
-  return { Tone, bassSynth: _bassSynth, kickSynth: _kickSynth, snareSynth: _snareSynth, rideSynth: _rideSynth, hihatSynth: _hihatSynth };
+  // ── Melody synth (bright FM lead) ─────────────────────────────────────────
+  if (!_melodySynth) {
+    _melodySynth = new Tone.FMSynth({
+      harmonicity:     3,
+      modulationIndex: 10,
+      envelope: { attack: 0.01, decay: 0.15, sustain: 0.4, release: 0.3 },
+    }).connect(_melodyVol!);
+  }
+
+  // ── Keys synth (warm polyphonic pad) ──────────────────────────────────────
+  if (!_keysSynth) {
+    _keysSynth = new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: 'sine' },
+      envelope:   { attack: 0.05, decay: 0.3, sustain: 0.6, release: 0.8 },
+    }).connect(_keysVol!);
+    _keysSynth.maxPolyphony = 6;
+  }
+
+  // ── Vocal synth (AM synth with vocal-ish timbre) ──────────────────────────
+  if (!_vocalSynth) {
+    _vocalSynth = new Tone.AMSynth({
+      harmonicity:     2.5,
+      envelope: { attack: 0.05, decay: 0.2, sustain: 0.5, release: 0.4 },
+    }).connect(_vocalVol!);
+  }
+
+  return {
+    Tone,
+    bassSynth: _bassSynth, kickSynth: _kickSynth, snareSynth: _snareSynth,
+    rideSynth: _rideSynth, hihatSynth: _hihatSynth,
+    melodySynth: _melodySynth, keysSynth: _keysSynth, vocalSynth: _vocalSynth,
+  };
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -131,15 +177,18 @@ async function getSynths() {
  * Must be called BEFORE Tone.Transport.start().
  */
 export async function scheduleBand(midiData: MidiData): Promise<void> {
-  const { Tone, bassSynth, kickSynth, snareSynth, rideSynth, hihatSynth } = await getSynths();
+  const { Tone, bassSynth, kickSynth, snareSynth, rideSynth, hihatSynth, melodySynth, keysSynth, vocalSynth } = await getSynths();
 
   const transport = Tone.getTransport();
   transport.cancel();
   transport.bpm.value = midiData.bpm;
 
   // ── Dispose previous Parts before rescheduling ────────────────────────────
-  if (_bassPart)  { _bassPart.dispose();  _bassPart  = null; }
-  if (_drumsPart) { _drumsPart.dispose(); _drumsPart = null; }
+  if (_bassPart)   { _bassPart.dispose();   _bassPart   = null; }
+  if (_drumsPart)  { _drumsPart.dispose();  _drumsPart  = null; }
+  if (_melodyPart) { _melodyPart.dispose(); _melodyPart = null; }
+  if (_keysPart)   { _keysPart.dispose();   _keysPart   = null; }
+  if (_vocalPart)  { _vocalPart.dispose();  _vocalPart  = null; }
 
   // ── Enable looping ─────────────────────────────────────────────────────────
   const loopEnd = `${midiData.total_bars}m`; // e.g. '4m'
@@ -215,6 +264,63 @@ export async function scheduleBand(midiData: MidiData): Promise<void> {
   _drumsPart.loop    = true;
   _drumsPart.loopEnd = loopEnd;
   _drumsPart.start(0);
+
+  // ── Melody Part ────────────────────────────────────────────────────────────
+  if (midiData.melody?.length && melodySynth) {
+    const melodyEvents = midiData.melody.map((note) => ({
+      time:     `${note.bar - 1}:${Math.floor(note.beat - 1)}:${Math.round(((note.beat - 1) - Math.floor(note.beat - 1)) * 4)}`,
+      note:     note.note,
+      duration: note.duration,
+      velocity: note.velocity / 127,
+    }));
+    _melodyPart = new Tone.Part(
+      (t: number, ev: { note: string; duration: string; velocity: number }) => {
+        melodySynth.triggerAttackRelease(ev.note, ev.duration, t, ev.velocity);
+      },
+      melodyEvents,
+    );
+    _melodyPart.loop    = true;
+    _melodyPart.loopEnd = loopEnd;
+    _melodyPart.start(0);
+  }
+
+  // ── Keys Part (PolySynth — chords) ─────────────────────────────────────────
+  if (midiData.keys?.length && keysSynth) {
+    const keysEvents = midiData.keys.map((chord) => ({
+      time:     `${chord.bar - 1}:${Math.floor(chord.beat - 1)}:${Math.round(((chord.beat - 1) - Math.floor(chord.beat - 1)) * 4)}`,
+      notes:    chord.notes,
+      duration: chord.duration,
+      velocity: chord.velocity / 127,
+    }));
+    _keysPart = new Tone.Part(
+      (t: number, ev: { notes: string[]; duration: string; velocity: number }) => {
+        keysSynth.triggerAttackRelease(ev.notes, ev.duration, t, ev.velocity);
+      },
+      keysEvents,
+    );
+    _keysPart.loop    = true;
+    _keysPart.loopEnd = loopEnd;
+    _keysPart.start(0);
+  }
+
+  // ── Vocal Part ─────────────────────────────────────────────────────────────
+  if (midiData.vocal?.length && vocalSynth) {
+    const vocalEvents = midiData.vocal.map((note) => ({
+      time:     `${note.bar - 1}:${Math.floor(note.beat - 1)}:${Math.round(((note.beat - 1) - Math.floor(note.beat - 1)) * 4)}`,
+      note:     note.note,
+      duration: note.duration,
+      velocity: note.velocity / 127,
+    }));
+    _vocalPart = new Tone.Part(
+      (t: number, ev: { note: string; duration: string; velocity: number }) => {
+        vocalSynth.triggerAttackRelease(ev.note, ev.duration, t, ev.velocity);
+      },
+      vocalEvents,
+    );
+    _vocalPart.loop    = true;
+    _vocalPart.loopEnd = loopEnd;
+    _vocalPart.start(0);
+  }
 }
 
 /**
@@ -266,18 +372,64 @@ export async function stopPlayback(): Promise<void> {
   transport.loop = false;
   if (_guitarPlayer) _guitarPlayer.stop();
   // Dispose Parts so they don't accumulate on re-generate
-  if (_bassPart)  { _bassPart.dispose();  _bassPart  = null; }
-  if (_drumsPart) { _drumsPart.dispose(); _drumsPart = null; }
+  if (_bassPart)   { _bassPart.dispose();   _bassPart   = null; }
+  if (_drumsPart)  { _drumsPart.dispose();  _drumsPart  = null; }
+  if (_melodyPart) { _melodyPart.dispose(); _melodyPart = null; }
+  if (_keysPart)   { _keysPart.dispose();   _keysPart   = null; }
+  if (_vocalPart)  { _vocalPart.dispose();  _vocalPart  = null; }
 }
 
 export async function setVolume(
-  track: 'guitar' | 'bass' | 'drums',
+  track: TrackName,
   db: number
 ): Promise<void> {
   await getSynths(); // ensure volumes are initialized
   if (track === 'guitar' && _guitarVol) _guitarVol.volume.value = db;
-  if (track === 'bass'   && _bassVol)   _bassVol.volume.value   = db - 2;   // bass pre-fader offset
-  if (track === 'drums'  && _drumsVol)  _drumsVol.volume.value  = db - 4;   // drums pre-fader offset
+  if (track === 'bass'   && _bassVol)   _bassVol.volume.value   = db - 2;
+  if (track === 'drums'  && _drumsVol)  _drumsVol.volume.value  = db - 4;
+  if (track === 'melody' && _melodyVol) _melodyVol.volume.value = db - 6;
+  if (track === 'keys'   && _keysVol)   _keysVol.volume.value   = db - 8;
+  if (track === 'vocal'  && _vocalVol)  _vocalVol.volume.value  = db - 4;
+}
+
+/**
+ * Mute or unmute a single track.
+ */
+export async function setTrackMute(track: TrackName, muted: boolean): Promise<void> {
+  await getSynths();
+  const vol = getVolumeNode(track);
+  if (vol) vol.mute = muted;
+}
+
+/**
+ * Solo a track (mutes all others). Passing solo=false unmutes all.
+ */
+export async function setTrackSolo(track: TrackName, solo: boolean): Promise<void> {
+  await getSynths();
+  const allTracks: TrackName[] = ['guitar', 'bass', 'drums', 'melody', 'keys', 'vocal'];
+  if (solo) {
+    for (const t of allTracks) {
+      const vol = getVolumeNode(t);
+      if (vol) vol.mute = t !== track;
+    }
+  } else {
+    for (const t of allTracks) {
+      const vol = getVolumeNode(t);
+      if (vol) vol.mute = false;
+    }
+  }
+}
+
+function getVolumeNode(track: TrackName) {
+  switch (track) {
+    case 'guitar': return _guitarVol;
+    case 'bass':   return _bassVol;
+    case 'drums':  return _drumsVol;
+    case 'melody': return _melodyVol;
+    case 'keys':   return _keysVol;
+    case 'vocal':  return _vocalVol;
+    default:       return null;
+  }
 }
 
 /**

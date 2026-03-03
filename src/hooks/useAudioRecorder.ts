@@ -28,26 +28,54 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
   const audioContextRef   = useRef<AudioContext | null>(null);
   const startTimeRef      = useRef<number>(0);
   const timerRef          = useRef<ReturnType<typeof setInterval> | null>(null);
+  const audioUrlRef        = useRef<string | null>(null);
 
-  // Clean up object URL on unmount
+  // Keep ref in sync for cleanup
+  useEffect(() => { audioUrlRef.current = audioUrl; }, [audioUrl]);
+
+  // Clean up object URL on unmount only
   useEffect(() => {
     return () => {
-      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
       if (timerRef.current) clearInterval(timerRef.current);
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
-  }, [audioUrl]);
+  }, []);
 
   const startRecording = useCallback(async () => {
     setError(null);
     chunksRef.current = [];
 
     try {
+      if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+        throw new Error('Recording is only available in the browser.');
+      }
+
+      if (!window.isSecureContext) {
+        throw new Error('Microphone access requires a secure context (HTTPS or localhost).');
+      }
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Your browser does not support microphone recording.');
+      }
+
+      if (typeof MediaRecorder === 'undefined') {
+        throw new Error('MediaRecorder is not available in this browser.');
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       streamRef.current = stream;
 
       // Build analyser for waveform visualisation
-      const audioCtx = new AudioContext();
+      const AudioContextCtor =
+        window.AudioContext ||
+        (window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+
+      if (!AudioContextCtor) {
+        throw new Error('Web Audio API is not available in this browser.');
+      }
+
+      const audioCtx = new AudioContextCtor();
       audioContextRef.current = audioCtx;
       const source   = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
