@@ -98,6 +98,9 @@ export default function Home() {
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [logExpanded,   setLogExpanded]   = useState(false);
 
+  // ─── Per-track recording blobs (guitar & vocal are independent) ───────────
+  const [trackRecordings, setTrackRecordings] = useState<Partial<Record<TrackName, Blob>>>({});
+
   // ─── Audio recording ──────────────────────────────────────────────────────
   const {
     state: recordingState,
@@ -111,8 +114,9 @@ export default function Home() {
     analyserNode,
   } = useAudioRecorder();
 
-  // Effective audio — either recorded or uploaded
-  const effectiveAudio = audioBlob || uploadBlob;
+  // Effective guitar audio — from recording or upload
+  const effectiveGuitarAudio = trackRecordings.guitar || uploadBlob;
+  const effectiveVocalAudio  = trackRecordings.vocal || null;
   const selectedTracks: TrackName[] = ['bass', 'drums', 'melody', 'keys', 'vocal'];
 
   // ─── Derived status ───────────────────────────────────────────────────────
@@ -123,7 +127,7 @@ export default function Home() {
 
   // ─── Generate Band ────────────────────────────────────────────────────────
   const handleGenerate = useCallback(async () => {
-    if (!effectiveAudio && !prompt && !useMock) {
+    if (!effectiveGuitarAudio && !effectiveVocalAudio && !prompt && !useMock) {
       setApiError('Please record audio, or type a prompt — or enable Mock Mode.');
       return;
     }
@@ -169,8 +173,9 @@ export default function Home() {
         setStreamLogs(mockResult.logs);
       } else {
         const formData = new FormData();
-        if (effectiveAudio) formData.append('audio', effectiveAudio, 'recording.webm');
-        if (prompt)         formData.append('prompt', prompt);
+        if (effectiveGuitarAudio) formData.append('audio', effectiveGuitarAudio, 'recording.webm');
+        if (effectiveVocalAudio)  formData.append('vocalAudio', effectiveVocalAudio, 'vocal.webm');
+        if (prompt)              formData.append('prompt', prompt);
         formData.append('bpm',             String(bpm));
         formData.append('genre',           genre);
         formData.append('key',             musicalKey);
@@ -245,21 +250,23 @@ export default function Home() {
         if (finalMidiData.keys?.length)    next.keys   = 'ai';
         if (finalMidiData.bass?.length)    next.bass   = 'ai';
         if (finalMidiData.drums?.length)   next.drums  = 'ai';
-        if (finalMidiData.vocal?.length)   next.vocal  = 'ai';
-        if (effectiveAudio)                next.guitar = 'user';
+        if (finalMidiData.vocal?.length && !effectiveVocalAudio) next.vocal = 'ai';
+        if (effectiveVocalAudio)            next.vocal  = 'user';
+        if (effectiveGuitarAudio)           next.guitar = 'user';
         return next;
       });
 
-      const { scheduleBand, loadGuitarTrack } = await import('@/lib/toneEngine');
+      const { scheduleBand, loadGuitarTrack, loadVocalTrack } = await import('@/lib/toneEngine');
       await scheduleBand(finalMidiData);
-      if (effectiveAudio) await loadGuitarTrack(effectiveAudio);
+      if (effectiveGuitarAudio) await loadGuitarTrack(effectiveGuitarAudio);
+      if (effectiveVocalAudio)  await loadVocalTrack(effectiveVocalAudio);
 
     } catch (err: unknown) {
       setApiError(err instanceof Error ? err.message : String(err));
       setAppStatus('error');
       setGenStep(0);
     }
-  }, [effectiveAudio, bpm, genre, musicalKey, bars, durationSeconds, useMock, prompt, selectedTracks]);
+  }, [effectiveGuitarAudio, effectiveVocalAudio, bpm, genre, musicalKey, bars, durationSeconds, useMock, prompt, selectedTracks]);
 
   // ─── Transport handlers ───────────────────────────────────────────────────
   const handlePlay = useCallback(async () => {
@@ -332,14 +339,16 @@ export default function Home() {
     }
   }, [armedTrack]);
 
-  // When recording is accepted via the modal
+  // When recording is accepted via the modal — store blob per-track
   const handleAcceptRecording = useCallback(() => {
     if (armedTrack && audioBlob) {
+      setTrackRecordings(prev => ({ ...prev, [armedTrack]: audioBlob }));
       setTrackSources(prev => ({ ...prev, [armedTrack]: 'user' as TrackSource }));
     }
     setShowRecordModal(false);
     setArmedTrack(null);
-  }, [armedTrack, audioBlob]);
+    clearRecording(); // Reset the recorder for next use
+  }, [armedTrack, audioBlob, clearRecording]);
 
   // ─── Export handler ───────────────────────────────────────────────────────
   const handleExportJson = useCallback(async () => {
@@ -372,18 +381,43 @@ export default function Home() {
         <title>Virtual AI Band</title>
         <meta name="description" content="AI-powered virtual band — multi-modal music production with AI" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/favicon.ico" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <link rel="icon" type="image/x-icon" href="/favicon.ico" />
       </Head>
 
       <div className="min-h-screen md:h-screen bg-background text-foreground flex flex-col md:overflow-hidden">
 
         {/* ── Header — Band Prompt + Session Toolbar ── */}
-        <header className="border-b border-border bg-card px-5 py-3 shrink-0">
+        <header className="border-b border-border bg-card px-3 sm:px-5 py-2 sm:py-3 shrink-0">
           {/* Top row: branding + status */}
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-3">
-              <h1 className="font-head text-lg font-extrabold tracking-tight">
-                🎵 Virtual AI Band
+            <div className="flex items-center gap-2 sm:gap-3">
+              {/* Favicon as logo */}
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" className="w-7 h-7 sm:w-8 sm:h-8 shrink-0">
+                <defs>
+                  <linearGradient id="logo-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#1c1c1e"/>
+                    <stop offset="100%" stopColor="#2c2c2e"/>
+                  </linearGradient>
+                  <linearGradient id="logo-wave" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#0a84ff"/>
+                    <stop offset="40%" stopColor="#34d399"/>
+                    <stop offset="75%" stopColor="#fbbf24"/>
+                    <stop offset="100%" stopColor="#f97316"/>
+                  </linearGradient>
+                </defs>
+                <rect x="2" y="2" width="60" height="60" rx="14" ry="14" fill="url(#logo-bg)" stroke="#48484a" strokeWidth="1.5"/>
+                <rect x="8"  y="34" width="4" height="10" rx="2" fill="url(#logo-wave)" opacity="0.9"/>
+                <rect x="14" y="28" width="4" height="16" rx="2" fill="url(#logo-wave)" opacity="0.9"/>
+                <rect x="20" y="20" width="4" height="24" rx="2" fill="url(#logo-wave)" opacity="0.9"/>
+                <rect x="26" y="14" width="4" height="30" rx="2" fill="url(#logo-wave)" opacity="0.9"/>
+                <rect x="32" y="18" width="4" height="26" rx="2" fill="url(#logo-wave)" opacity="0.9"/>
+                <rect x="38" y="24" width="4" height="20" rx="2" fill="url(#logo-wave)" opacity="0.9"/>
+                <rect x="44" y="30" width="4" height="14" rx="2" fill="url(#logo-wave)" opacity="0.9"/>
+                <rect x="50" y="34" width="4" height="10" rx="2" fill="url(#logo-wave)" opacity="0.9"/>
+              </svg>
+              <h1 className="font-head text-base sm:text-lg font-extrabold tracking-tight">
+                Virtual AI Band
               </h1>
               <span className="text-xs text-muted-foreground hidden sm:inline">
                 {process.env.NEXT_PUBLIC_IS_GROQ === 'true'
@@ -417,68 +451,102 @@ export default function Home() {
           </div>
 
           {/* Band Prompt bar + session params */}
-          <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-end">
-            {/* Prompt input — the star */}
-            <div className="flex-1">
-              <label className="text-xs font-semibold text-muted-foreground mb-1 block">Band Prompt</label>
-              <input
-                type="text"
+          <div className="flex flex-col gap-3">
+            {/* Prompt textarea — the star */}
+            <div className="w-full">
+              <label className="text-[13px] font-semibold text-muted-foreground mb-1.5 block tracking-wide uppercase">Band Prompt</label>
+              <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !isProcessing && handleGenerate()}
+                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && !isProcessing && (e.preventDefault(), handleGenerate())}
                 placeholder="Describe the music you want — e.g. 'chill lo-fi beat with jazzy piano chords'..."
-                className="daw-input w-full text-sm"
+                className="daw-textarea w-full"
+                rows={2}
                 disabled={isProcessing}
               />
             </div>
 
-            {/* Session param controls */}
-            <div className="flex gap-2 items-end flex-wrap">
+            {/* Session param controls + Generate */}
+            <div className="flex gap-3 items-end flex-wrap w-full">
               {/* BPM */}
-              <div className="w-20">
-                <label className="text-xs text-muted-foreground mb-1 block">BPM</label>
-                <input
-                  type="number" min={40} max={240} step={1}
-                  value={bpm} onChange={(e) => setBpm(Number(e.target.value))}
-                  className="daw-input text-center text-sm"
-                />
+              <div className="w-27.5 sm:w-30">
+                <label className="text-[11px] font-semibold text-muted-foreground mb-1.5 block tracking-wider uppercase">BPM</label>
+                <div className="daw-stepper">
+                  <button
+                    type="button"
+                    className="daw-stepper-btn"
+                    onClick={() => setBpm(Math.max(40, bpm - 1))}
+                    disabled={bpm <= 40}
+                    aria-label="Decrease BPM"
+                  >−</button>
+                  <input
+                    type="number" min={40} max={240} step={1}
+                    value={bpm}
+                    onChange={(e) => setBpm(Math.min(240, Math.max(40, Number(e.target.value))))}
+                    className="daw-stepper-value"
+                  />
+                  <button
+                    type="button"
+                    className="daw-stepper-btn"
+                    onClick={() => setBpm(Math.min(240, bpm + 1))}
+                    disabled={bpm >= 240}
+                    aria-label="Increase BPM"
+                  >+</button>
+                </div>
               </div>
 
               {/* Genre */}
-              <div className="w-32">
-                <label className="text-xs text-muted-foreground mb-1 block">Genre</label>
-                <select value={genre} onChange={(e) => setGenre(e.target.value)} className="daw-input text-sm">
+              <div className="w-30 sm:w-35">
+                <label className="text-[11px] font-semibold text-muted-foreground mb-1.5 block tracking-wider uppercase">Genre</label>
+                <select value={genre} onChange={(e) => setGenre(e.target.value)} className="daw-select">
                   {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
                 </select>
               </div>
 
               {/* Key */}
-              <div className="w-28">
-                <label className="text-xs text-muted-foreground mb-1 block">Key</label>
-                <select value={musicalKey} onChange={(e) => setMusicalKey(e.target.value)} className="daw-input text-sm">
+              <div className="w-30 sm:w-35">
+                <label className="text-[11px] font-semibold text-muted-foreground mb-1.5 block tracking-wider uppercase">Key</label>
+                <select value={musicalKey} onChange={(e) => setMusicalKey(e.target.value)} className="daw-select">
                   {KEYS.map(k => <option key={k} value={k}>{k}</option>)}
                 </select>
               </div>
 
               {/* Bars */}
-              <div className="w-16">
-                <label className="text-xs text-muted-foreground mb-1 block">Bars</label>
-                <input
-                  type="number" min={2} max={16} step={1}
-                  value={bars} onChange={(e) => setBars(Number(e.target.value))}
-                  className="daw-input text-center text-sm"
-                />
+              <div className="w-25 sm:w-27.5">
+                <label className="text-[11px] font-semibold text-muted-foreground mb-1.5 block tracking-wider uppercase">Bars</label>
+                <div className="daw-stepper">
+                  <button
+                    type="button"
+                    className="daw-stepper-btn"
+                    onClick={() => setBars(Math.max(2, bars - 1))}
+                    disabled={bars <= 2}
+                    aria-label="Decrease Bars"
+                  >−</button>
+                  <input
+                    type="number" min={2} max={16} step={1}
+                    value={bars}
+                    onChange={(e) => setBars(Math.min(16, Math.max(2, Number(e.target.value))))}
+                    className="daw-stepper-value"
+                  />
+                  <button
+                    type="button"
+                    className="daw-stepper-btn"
+                    onClick={() => setBars(Math.min(16, bars + 1))}
+                    disabled={bars >= 16}
+                    aria-label="Increase Bars"
+                  >+</button>
+                </div>
               </div>
 
               {/* Generate button */}
               <button
                 onClick={handleGenerate}
                 disabled={isProcessing || recordingState === 'recording'}
-                className="daw-btn daw-btn-primary h-9.5 px-6 text-sm whitespace-nowrap"
+                className="daw-btn daw-btn-gradient h-9.5 px-5 sm:px-7 text-[13px] whitespace-nowrap flex-1 sm:flex-none min-w-fit rounded-[10px]"
               >
                 {isProcessing
-                  ? <span className="animate-pulse">Generating...</span>
-                  : <span>🎵 Generate Band</span>
+                  ? <span className="animate-pulse">⏳ Generating...</span>
+                  : <span>✦ Generate Band</span>
                 }
               </button>
             </div>
@@ -509,10 +577,10 @@ export default function Home() {
         <main className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden">
 
           {/* Production Board — the star of the show */}
-          <section className="flex-1 flex flex-col p-3 min-h-0 overflow-hidden">
+          <section className="flex-1 flex flex-col p-2 sm:p-3 min-h-0 overflow-hidden">
             <ProductionBoard
               midiData={midiData}
-              hasAudio={!!effectiveAudio}
+              hasAudio={!!effectiveGuitarAudio}
               trackStates={trackStates}
               trackSources={trackSources}
               isPlaying={isPlaying}
@@ -532,7 +600,7 @@ export default function Home() {
           {/* Agent Log — collapsible side panel */}
           <section
             className={`border-t md:border-t-0 md:border-l border-border transition-all overflow-hidden flex flex-col ${
-              logExpanded ? 'h-100 md:h-auto md:w-90' : 'h-10 md:h-auto md:w-10'
+              logExpanded ? 'h-64 sm:h-100 md:h-auto md:w-90' : 'h-10 md:h-auto md:w-10'
             }`}
           >
             {/* Toggle button */}

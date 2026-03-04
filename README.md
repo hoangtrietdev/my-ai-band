@@ -1,40 +1,123 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/pages/api-reference/create-next-app).
+# 🎵 Virtual AI Band
 
-## Getting Started
+A **GarageBand-inspired AI music production studio** built for hackathons. Describe the music you want in plain English and the AI band generates bass, drums, melody, keys, and vocal tracks — fully playable in the browser with Tone.js.
 
-First, run the development server:
+---
+
+## ✨ Features
+
+| Feature | Description |
+|---------|-------------|
+| **6-Track DAW UI** | GarageBand-style track lanes with color-coded waveform blocks, per-track mute/solo/volume, and a real-time playhead |
+| **AI Band Generation** | Enter a text prompt and the AI produces coordinated MIDI data for bass, drums, melody, keys, and vocal |
+| **Arm-to-Record** | Click the red record button on Guitar or Vocal tracks to record live audio via your microphone — stored per-track without overlap |
+| **Genre-Aware Engine** | 7 genres (**jazz, pop, blues, funk, bossa nova, lo-fi, rock**) each with unique bass patterns, drum grooves, melody scales, chord voicings, and vocal syllables |
+| **Mock Mode** | Toggle mock mode for instant offline generation — no API key needed, great for demos |
+| **SSE Streaming** | Real-time agent log shows producer ↔ musician communication streamed via Server-Sent Events |
+| **Responsive** | Fully responsive from phone to desktop — compact track lanes, fluid modal, adaptive header controls |
+| **Export** | Download the generated MIDI data as JSON |
+
+## 🛠 Tech Stack
+
+- **Framework:** [Next.js 16](https://nextjs.org) (Pages Router, TypeScript strict)
+- **Styling:** [Tailwind CSS v4](https://tailwindcss.com) with custom GarageBand-inspired design tokens
+- **Audio Engine:** [Tone.js](https://tonejs.github.io) — lazy-loaded synths, per-track Volume nodes, master Compressor
+- **Schema Validation:** [Zod v4](https://zod.dev)
+- **Fonts:** Inter + JetBrains Mono (Google Fonts)
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- npm / yarn / pnpm
+
+### Install & Run
 
 ```bash
+# Clone the repo
+git clone <repo-url>
+cd my-ai-band
+
+# Install dependencies
+npm install
+
+# Start the dev server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `pages/index.tsx`. The page auto-updates as you edit the file.
+### Environment Variables
 
-[API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.ts`.
+Create a `.env` file in the project root:
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) instead of React pages.
+```env
+# Required for real API mode (not needed in mock mode)
+GROQ_API_KEY=your_groq_api_key_here
 
-This project uses [`next/font`](https://nextjs.org/docs/pages/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+# Optional — display backend label in the UI
+NEXT_PUBLIC_IS_GROQ=true
+```
 
-## Learn More
+> **Tip:** Toggle **Mock** mode in the top-right corner to skip the API and generate music instantly.
 
-To learn more about Next.js, take a look at the following resources:
+## 🎛 Architecture
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn-pages-router) - an interactive Next.js tutorial.
+```
+src/
+├── pages/
+│   ├── index.tsx              # Main DAW page — header, production board, agent log
+│   └── api/
+│       └── orchestrate-band.ts  # SSE endpoint — orchestrates AI band via LLM
+├── components/
+│   ├── ProductionBoard.tsx    # Track lane container + transport controls
+│   ├── TrackStrip.tsx         # Single track — color stripe, M/S, volume, waveform
+│   ├── WaveformBlock.tsx      # Colored note-block visualization
+│   ├── RecordModal.tsx        # Arm-to-record modal with live waveform
+│   ├── AgentTerminal.tsx      # Scrolling agent log with typewriter effect
+│   └── StatusBadge.tsx        # Idle / Processing / Ready badge
+├── lib/
+│   ├── toneEngine.ts          # Tone.js — synths, scheduling, playback, mute/solo
+│   ├── mockApiResponse.ts     # Genre-aware randomized MIDI generator
+│   ├── schemas.ts             # Zod schemas for MIDI data types
+│   └── exportHelpers.ts       # JSON export utility
+├── hooks/
+│   ├── useAudioRecorder.ts    # MediaRecorder hook (mic → Blob)
+│   ├── usePlayhead.ts         # Transport position tracker
+│   └── useTypewriter.ts       # Character-by-character text animation
+└── styles/
+    └── globals.css             # DAW design tokens + responsive primitives
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Audio Signal Chain
 
-## Deploy on Vercel
+```
+Synths/Players → per-track Volume node → master Compressor → Destination
+                                       ↗ Drums Reverb (short room)
+                                       ↗ Bass LowPass Filter (340 Hz)
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Genre Engine
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/pages/building-your-application/deploying) for more details.
+Each genre produces unique patterns:
+
+| Genre | Bass | Drums | Melody | Keys | Vocal |
+|-------|------|-------|--------|------|-------|
+| **Jazz** | Walking quarter notes, chromatic approach | Swing ride, brush snare | Bebop chromaticism, wide leaps | Rootless voicings, swing comp | Scat syllables |
+| **Rock** | Driving eighths, power root | Heavy kick, crash-heavy | Pentatonic riffs | Power chords | Strong, anthemic |
+| **Blues** | Shuffle, root-♭7 | Shuffle ride, triplet feel | Blues scale, lazy phrasing | Dominant 7ths | Soulful |
+| **Funk** | Syncopated 16ths, slap | 16th hi-hats, ghost snares | Staccato, rhythmic | Choppy stabs | Percussive |
+| **Bossa Nova** | Root-fifth alternation | Rim click, cross-stick | Gentle stepwise | Maj7 comping | Soft, breathy |
+| **Lo-fi** | Warm long tones | Sparse, mellow | Dreamy pentatonic | Suspended washes | Ethereal |
+| **Pop** | Root-fifth, straight | 4-on-floor | Catchy, stepwise | Triad pads | Clear, singable |
+
+## 📱 Responsive Design
+
+- **Phone (< 640px):** Compact track lanes, smaller controls, stacked header params, fluid record modal
+- **Tablet (640–1023px):** Relaxed spacing, side-by-side params
+- **Desktop (1024px+):** Full DAW layout with collapsible agent log side panel
+
+## 📄 License
+
+MIT
