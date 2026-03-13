@@ -68,7 +68,7 @@ export default function Home() {
   const [bpm,        setBpm]        = useState(120);
   const [genre,      setGenre]      = useState('jazz');
   const [musicalKey, setMusicalKey] = useState('C major');
-  const [bars,       setBars]       = useState(4);
+  const [bars,       setBars]       = useState(8);
 
   // ─── Band Prompt (text description) ──────────────────────────────────────
   const [prompt,         setPrompt]         = useState('');
