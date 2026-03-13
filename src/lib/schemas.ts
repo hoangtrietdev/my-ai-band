@@ -50,6 +50,7 @@ export const VocalNoteSchema = z.object({
 export const MidiDataSchema = z.object({
   bpm:        z.number().positive(),
   total_bars: z.number().int().positive(),
+  swing:      z.number().min(0).max(0.5).optional(),
   bass:       z.array(BassNoteSchema),
   drums:      z.array(DrumHitSchema),
   melody:     z.array(MelodyNoteSchema).optional(),
@@ -82,6 +83,7 @@ export const ProducerDirectiveSchema = z.object({
   vocal_directive:   z.string().optional(),
   chord_roots:       z.array(z.string()),
   feel:              z.string(),
+  swing:             z.number().min(0).max(0.5).optional(),
 });
 
 // ─── Inferred Types ───────────────────────────────────────────────────────────
