@@ -34,9 +34,9 @@ export default function TrackStrip({
       <div className="track-color-stripe" style={{ background: color }} />
 
       {/* Track label */}
-      <div className="flex items-center gap-1.5 w-20 shrink-0">
-        <span className="text-base">{icon}</span>
-        <span className="text-xs font-semibold tracking-wide" style={{ color }}>
+      <div className="flex items-center gap-1 sm:gap-1.5 w-14 sm:w-20 shrink-0">
+        <span className="text-sm sm:text-base">{icon}</span>
+        <span className="text-[10px] sm:text-xs font-semibold tracking-wide truncate" style={{ color }}>
           {name}
         </span>
       </div>
@@ -79,13 +79,13 @@ export default function TrackStrip({
         S
       </button>
 
-      {/* Volume slider */}
+      {/* Volume slider — hidden on very small screens */}
       <input
         type="range"
         min={-24} max={6} step={1}
         value={volume}
         onChange={(e) => onVolume(Number(e.target.value))}
-        className="w-14 shrink-0"
+        className="w-10 sm:w-14 shrink-0 hidden xs:block"
         title={`${volume} dB`}
       />
 

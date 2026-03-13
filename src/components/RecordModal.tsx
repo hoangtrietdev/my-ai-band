@@ -91,9 +91,9 @@ export default function RecordModal({
     <div className="record-overlay" onClick={(e) => e.target === e.currentTarget && onCancel()}>
       <div className="record-modal">
         {/* Title */}
-        <div className="flex items-center gap-3 mb-6">
+        <div className="flex items-center gap-3 mb-4 sm:mb-6">
           <div className="w-3 h-3 rounded-full" style={{ background: trackColor }} />
-          <h2 className="text-lg font-bold">Record — {trackName}</h2>
+          <h2 className="text-base sm:text-lg font-bold">Record — {trackName}</h2>
         </div>
 
         {/* Waveform visualizer */}
@@ -101,21 +101,21 @@ export default function RecordModal({
           ref={canvasRef}
           width={400}
           height={80}
-          className="w-full h-20 rounded-lg mb-4"
+          className="w-full h-16 sm:h-20 rounded-lg mb-3 sm:mb-4"
         />
 
         {/* Duration */}
-        <div className="text-center mb-5">
+        <div className="text-center mb-4 sm:mb-5">
           {recordingState === 'recording' ? (
-            <span className="text-2xl font-mono font-bold text-red-400 animate-pulse">
+            <span className="text-xl sm:text-2xl font-mono font-bold text-red-400 animate-pulse">
               ● {fmt(durationSeconds)}
             </span>
           ) : recordingState === 'stopped' ? (
-            <span className="text-2xl font-mono font-bold" style={{ color: trackColor }}>
+            <span className="text-xl sm:text-2xl font-mono font-bold" style={{ color: trackColor }}>
               ■ {fmt(durationSeconds)}
             </span>
           ) : (
-            <span className="text-2xl font-mono text-muted-foreground">
+            <span className="text-xl sm:text-2xl font-mono text-muted-foreground">
               ○ Ready
             </span>
           )}
@@ -134,7 +134,7 @@ export default function RecordModal({
         )}
 
         {/* Action buttons */}
-        <div className="flex gap-3 justify-end">
+        <div className="flex gap-2 sm:gap-3 justify-end flex-wrap">
           {recordingState === 'idle' && (
             <>
               <button onClick={onCancel} className="daw-btn daw-btn-ghost text-sm">Cancel</button>

@@ -34,7 +34,7 @@ export const KeysChordSchema = z.object({
   bar:      z.number().int().positive(),
   beat:     z.number().positive(),
   notes:    z.array(z.string().regex(/^[A-G]#?[0-9]$/)).min(2).max(5),
-  duration: z.enum(['1n', '2n', '4n', '8n', '4n.']),
+  duration: z.enum(['1n', '2n', '4n', '8n', '16n', '4n.']),
   velocity: z.number().min(0).max(127),
 });
 

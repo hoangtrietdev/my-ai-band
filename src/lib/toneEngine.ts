@@ -24,6 +24,7 @@ let _snareSynth:  InstanceType<ToneModule['NoiseSynth']> | null = null;
 let _rideSynth:   InstanceType<ToneModule['MetalSynth']> | null = null;
 let _hihatSynth:  InstanceType<ToneModule['MetalSynth']> | null = null;
 let _guitarPlayer: InstanceType<ToneModule['Player']> | null = null;
+let _vocalPlayer:  InstanceType<ToneModule['Player']> | null = null;
 let _melodySynth: InstanceType<ToneModule['FMSynth']> | null = null;
 let _keysSynth:   InstanceType<ToneModule['PolySynth']> | null = null;
 let _vocalSynth:  InstanceType<ToneModule['AMSynth']> | null = null;
@@ -328,8 +329,6 @@ export async function scheduleBand(midiData: MidiData): Promise<void> {
  * to Tone.Transport so it plays perfectly alongside bass and drums.
  */
 export async function loadGuitarTrack(audioBlob: Blob): Promise<void> {
-  // Ensure the full master chain (_guitarVol → _masterComp → Destination) is initialized
-  // so guitar blends through the same compressor as bass and drums.
   await getSynths();
   const Tone = await getTone();
 
@@ -343,10 +342,36 @@ export async function loadGuitarTrack(audioBlob: Blob): Promise<void> {
   const arrayBuffer = await audioBlob.arrayBuffer();
   const audioBuffer = await Tone.getContext().rawContext.decodeAudioData(arrayBuffer);
 
-  // Connect into the existing _guitarVol (already wired to _masterComp)
   _guitarPlayer = new Tone.Player(audioBuffer).connect(_guitarVol!);
-  // Sync to transport so it starts/loops alongside bass and drums
   _guitarPlayer.sync().start(0);
+}
+
+/**
+ * Load the recorded vocal audioBlob into a separate Tone.Player.
+ * When a user records vocals, this replaces the synth-based vocal track.
+ */
+export async function loadVocalTrack(audioBlob: Blob): Promise<void> {
+  await getSynths();
+  const Tone = await getTone();
+
+  // Tear down previous vocal player
+  if (_vocalPlayer) {
+    _vocalPlayer.stop();
+    _vocalPlayer.disconnect();
+    _vocalPlayer = null;
+  }
+
+  // Stop the synth-based vocal part so it doesn't overlap
+  if (_vocalPart) {
+    _vocalPart.dispose();
+    _vocalPart = null;
+  }
+
+  const arrayBuffer = await audioBlob.arrayBuffer();
+  const audioBuffer = await Tone.getContext().rawContext.decodeAudioData(arrayBuffer);
+
+  _vocalPlayer = new Tone.Player(audioBuffer).connect(_vocalVol!);
+  _vocalPlayer.sync().start(0);
 }
 
 /**
@@ -371,6 +396,7 @@ export async function stopPlayback(): Promise<void> {
   transport.cancel();
   transport.loop = false;
   if (_guitarPlayer) _guitarPlayer.stop();
+  if (_vocalPlayer)  _vocalPlayer.stop();
   // Dispose Parts so they don't accumulate on re-generate
   if (_bassPart)   { _bassPart.dispose();   _bassPart   = null; }
   if (_drumsPart)  { _drumsPart.dispose();  _drumsPart  = null; }

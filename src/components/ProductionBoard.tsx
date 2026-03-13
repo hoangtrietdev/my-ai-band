@@ -124,39 +124,40 @@ export default function ProductionBoard({
   return (
     <div className="daw-panel overflow-hidden flex flex-col h-full">
       {/* Track header bar */}
-      <div className="daw-panel-header flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="daw-panel-header flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-3">
           <span className="text-xs font-semibold tracking-wide text-foreground">Tracks</span>
           {midiData && (
-            <span className="text-xs text-muted-foreground">
+            <span className="text-[10px] sm:text-xs text-muted-foreground">
               {midiData.total_bars} bars · {midiData.bpm} BPM
             </span>
           )}
         </div>
 
         {/* Transport controls */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <button
             onClick={isPlaying ? onPause : onPlay}
             disabled={!isReady}
-            className="daw-btn daw-btn-primary text-xs py-1.5 px-4"
+            className="daw-btn daw-btn-primary text-xs py-1.5 px-3 sm:px-4"
           >
             {isPlaying ? '⏸ Pause' : '▶ Play'}
           </button>
           <button
             onClick={onStop}
             disabled={!isReady}
-            className="daw-btn daw-btn-ghost text-xs py-1.5 px-4"
+            className="daw-btn daw-btn-ghost text-xs py-1.5 px-3 sm:px-4"
           >
             ■ Stop
           </button>
           <button
             onClick={onExportJson}
             disabled={!midiData}
-            className="daw-btn daw-btn-ghost text-xs py-1.5 px-3"
+            className="daw-btn daw-btn-ghost text-xs py-1.5 px-2 sm:px-3"
             title="Download MIDI JSON"
           >
-            ⬇ Export
+            <span className="hidden sm:inline">⬇ Export</span>
+            <span className="sm:hidden">⬇</span>
           </button>
         </div>
       </div>
