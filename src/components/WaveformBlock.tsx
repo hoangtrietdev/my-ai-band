@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 
 interface WaveformBlockProps {
   /** MIDI events to render as colored blocks */
@@ -15,6 +15,7 @@ interface WaveformBlockProps {
   source: 'user' | 'ai' | 'empty';
   onArm?: () => void;
   canRecord?: boolean;
+  onSeekPct?: (pct: number) => void;
 }
 
 /**
@@ -31,10 +32,19 @@ export default function WaveformBlock({
   source,
   canRecord = false,
   onArm,
+  onSeekPct,
 }: WaveformBlockProps) {
   const HEIGHT = 38;
   const NOTE_H = 18;
   const NOTE_Y = (HEIGHT - NOTE_H) / 2;
+  const blockRef = useRef<HTMLDivElement>(null);
+
+  const seekFromPointer = (clientX: number) => {
+    if (!onSeekPct || !blockRef.current) return;
+    const rect = blockRef.current.getBoundingClientRect();
+    const pct = ((clientX - rect.left) / rect.width) * 100;
+    onSeekPct(Math.max(0, Math.min(100, pct)));
+  };
 
   // Generate a pseudo-waveform shape for user recordings (no note events)
   const fakeWaveform = useMemo(() => {
@@ -80,8 +90,16 @@ export default function WaveformBlock({
 
   return (
     <div
+      ref={blockRef}
       className="waveform-block waveform-block-filled animate-cascade"
       style={{ background: `${color}22` }}
+      onPointerDown={(e) => {
+        seekFromPointer(e.clientX);
+        e.currentTarget.setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={(e) => {
+        if (e.buttons === 1) seekFromPointer(e.clientX);
+      }}
     >
       <svg
         viewBox={`0 0 ${svgWidth} ${HEIGHT}`}

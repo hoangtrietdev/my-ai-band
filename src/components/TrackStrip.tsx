@@ -12,7 +12,8 @@ interface TrackStripProps {
   playheadPct: number;
   onMute:      () => void;
   onSolo:      () => void;
-  onVolume:    (db: number) => void;
+  onVolume:    (percent: number) => void;
+  onSeekPct?:  (pct: number) => void;
   hasData:     boolean;
   source:      'user' | 'ai' | 'empty';
   /** Whether this track is armed for recording */
@@ -26,6 +27,7 @@ export default function TrackStrip({
   name, icon, color, muted, solo, volume,
   events, totalBeats, playheadPct,
   onMute, onSolo, onVolume, hasData,
+  onSeekPct,
   source, armed = false, onArm, canRecord = false,
 }: TrackStripProps) {
   return (
@@ -79,15 +81,35 @@ export default function TrackStrip({
         S
       </button>
 
-      {/* Volume slider — hidden on very small screens */}
-      <input
-        type="range"
-        min={-24} max={6} step={1}
-        value={volume}
-        onChange={(e) => onVolume(Number(e.target.value))}
-        className="w-10 sm:w-14 shrink-0 hidden xs:block"
-        title={`${volume} dB`}
-      />
+      {/* Volume controls */}
+      <div className="track-volume-control shrink-0">
+        <button
+          type="button"
+          className="track-volume-btn"
+          onClick={() => onVolume(Math.max(0, volume - 5))}
+          aria-label={`Decrease ${name} volume`}
+        >−</button>
+        <div className="track-volume-readout">
+          <span className="track-volume-label">VOL</span>
+          <span className="track-volume-value">{volume}%</span>
+        </div>
+        <button
+          type="button"
+          className="track-volume-btn"
+          onClick={() => onVolume(Math.min(100, volume + 5))}
+          aria-label={`Increase ${name} volume`}
+        >+</button>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={volume}
+          onChange={(e) => onVolume(Number(e.target.value))}
+          className="track-volume-slider"
+          title={`${volume}%`}
+        />
+      </div>
 
       {/* Waveform block */}
       <WaveformBlock
@@ -99,6 +121,7 @@ export default function TrackStrip({
         source={source}
         canRecord={canRecord}
         onArm={onArm}
+        onSeekPct={onSeekPct}
       />
     </div>
   );

@@ -5,9 +5,10 @@ import { useState, useEffect, useRef } from 'react';
  * Uses requestAnimationFrame for smooth updates.
  * Caches the Tone module reference to avoid dynamic import on every frame.
  */
-export function usePlayhead(): number {
+export function usePlayhead(totalDurationSeconds = 0): { pct: number; seconds: number } {
   const [pct, setPct] = useState(0);
-  const transportRef = useRef<{ progress: number } | null>(null);
+  const [seconds, setSeconds] = useState(0);
+  const transportRef = useRef<{ progress: number; seconds: number } | null>(null);
 
   useEffect(() => {
     let raf: number;
@@ -23,7 +24,15 @@ export function usePlayhead(): number {
       const transport = transportRef.current;
       if (transport) {
         const progress = transport.progress;
-        setPct(typeof progress === 'number' && isFinite(progress) ? progress * 100 : 0);
+        const currentSeconds = typeof transport.seconds === 'number' && isFinite(transport.seconds)
+          ? transport.seconds
+          : 0;
+        setSeconds(currentSeconds);
+        if (totalDurationSeconds > 0) {
+          setPct(Math.min(100, Math.max(0, (currentSeconds / totalDurationSeconds) * 100)));
+        } else {
+          setPct(typeof progress === 'number' && isFinite(progress) ? progress * 100 : 0);
+        }
       }
       raf = requestAnimationFrame(tick);
     };
@@ -33,7 +42,7 @@ export function usePlayhead(): number {
       mounted = false;
       cancelAnimationFrame(raf);
     };
-  }, []);
+  }, [totalDurationSeconds]);
 
-  return pct;
+  return { pct, seconds };
 }

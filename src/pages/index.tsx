@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import Head from 'next/head';
 import dynamic from 'next/dynamic';
 import { useAudioRecorder } from '@/hooks/useAudioRecorder';
 import { MidiData, TrackName } from '@/lib/schemas';
 import { AppStatus } from '@/components/StatusBadge';
 import type { TrackState, TrackSource } from '@/components/ProductionBoard';
+import { normalizeMidiDataDurations } from '@/lib/musicTimeline';
 
 // Dynamically import heavy/browser-only components to avoid SSR issues
 const AgentTerminal     = dynamic(() => import('@/components/AgentTerminal'),     { ssr: false });
@@ -19,6 +20,7 @@ const KEYS = [
   'C major', 'G major', 'D major', 'A major', 'E major', 'F major', 'Bb major',
   'A minor', 'E minor', 'D minor', 'G minor', 'C minor',
 ];
+const SELECTED_TRACKS: TrackName[] = ['bass', 'drums', 'melody', 'keys', 'vocal'];
 
 // ─── Generation Progress Bar ─────────────────────────────────────────────────
 
@@ -43,12 +45,12 @@ function GenerationProgress({ step, label, totalSteps }: { step: number; label: 
 
 function defaultTrackStates(): Record<TrackName, TrackState> {
   return {
-    guitar: { muted: false, solo: false, volume: 0 },
-    bass:   { muted: false, solo: false, volume: 0 },
-    drums:  { muted: false, solo: false, volume: 0 },
-    melody: { muted: false, solo: false, volume: 0 },
-    keys:   { muted: false, solo: false, volume: 0 },
-    vocal:  { muted: false, solo: false, volume: 0 },
+    guitar: { muted: false, solo: false, volume: 100 },
+    bass:   { muted: false, solo: false, volume: 100 },
+    drums:  { muted: false, solo: false, volume: 100 },
+    melody: { muted: false, solo: false, volume: 100 },
+    keys:   { muted: false, solo: false, volume: 100 },
+    vocal:  { muted: false, solo: false, volume: 100 },
   };
 }
 
@@ -97,6 +99,9 @@ export default function Home() {
   const [armedTrack,    setArmedTrack]    = useState<TrackName | null>(null);
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [logExpanded,   setLogExpanded]   = useState(false);
+  const [isCountingIn, setIsCountingIn] = useState(false);
+  const [countInBeat, setCountInBeat] = useState<number | null>(null);
+  const countInAbortRef = useRef<AbortController | null>(null);
 
   // ─── Per-track recording blobs (guitar & vocal are independent) ───────────
   const [trackRecordings, setTrackRecordings] = useState<Partial<Record<TrackName, Blob>>>({});
@@ -117,7 +122,6 @@ export default function Home() {
   // Effective guitar audio — from recording or upload
   const effectiveGuitarAudio = trackRecordings.guitar || uploadBlob;
   const effectiveVocalAudio  = trackRecordings.vocal || null;
-  const selectedTracks: TrackName[] = ['bass', 'drums', 'melody', 'keys', 'vocal'];
 
   // ─── Derived status ───────────────────────────────────────────────────────
   const derivedStatus: AppStatus =
@@ -128,7 +132,7 @@ export default function Home() {
   // ─── Generate Band ────────────────────────────────────────────────────────
   const handleGenerate = useCallback(async () => {
     if (!effectiveGuitarAudio && !effectiveVocalAudio && !prompt && !useMock) {
-      setApiError('Please record audio, or type a prompt — or enable Mock Mode.');
+      setApiError('Please record audio, or type a prompt, or enable Mock Mode.');
       return;
     }
 
@@ -141,9 +145,9 @@ export default function Home() {
 
     // Calculate total steps
     let steps = 3; // producer + bass&drums + compile
-    if (selectedTracks.includes('melody')) steps++;
-    if (selectedTracks.includes('keys'))   steps++;
-    if (selectedTracks.includes('vocal'))  steps++;
+    if (SELECTED_TRACKS.includes('melody')) steps++;
+    if (SELECTED_TRACKS.includes('keys'))   steps++;
+    if (SELECTED_TRACKS.includes('vocal'))  steps++;
     setGenTotal(steps);
 
     try {
@@ -151,7 +155,7 @@ export default function Home() {
 
       if (useMock) {
         const { generateMockResponse } = await import('@/lib/mockApiResponse');
-        const mockResult = generateMockResponse({ bpm, bars, musicalKey, genre, selectedTracks });
+        const mockResult = generateMockResponse({ bpm, bars, musicalKey, genre, selectedTracks: SELECTED_TRACKS });
         setGenStep(1); setGenLabel('Producer analyzing session...');
         setStreamLogs(prev => [...prev, `[System] BPM: ${bpm}  |  Genre: ${genre.toUpperCase()}  |  Key: ${musicalKey}  |  Bars: ${bars}`]);
         await new Promise((r) => setTimeout(r, 400));
@@ -159,17 +163,17 @@ export default function Home() {
         await new Promise((r) => setTimeout(r, 400));
         setGenStep(3); setGenLabel('Drummer building the beat...');
         await new Promise((r) => setTimeout(r, 400));
-        if (selectedTracks.includes('melody')) {
+        if (SELECTED_TRACKS.includes('melody')) {
           setGenStep(4); setGenLabel('Melodist composing lead...');
           await new Promise((r) => setTimeout(r, 300));
         }
-        if (selectedTracks.includes('keys')) {
+        if (SELECTED_TRACKS.includes('keys')) {
           setGenStep(steps - 1); setGenLabel('Keys Player voicing chords...');
           await new Promise((r) => setTimeout(r, 300));
         }
         setGenStep(steps); setGenLabel('Compiling & validating...');
         await new Promise((r) => setTimeout(r, 200));
-        finalMidiData = mockResult.midi_data;
+        finalMidiData = normalizeMidiDataDurations(mockResult.midi_data);
         setStreamLogs(mockResult.logs);
       } else {
         const formData = new FormData();
@@ -180,7 +184,7 @@ export default function Home() {
         formData.append('genre',           genre);
         formData.append('key',             musicalKey);
         formData.append('bars',            String(bars));
-        formData.append('tracks',          selectedTracks.join(','));
+        formData.append('tracks',          SELECTED_TRACKS.join(','));
         if (durationSeconds) formData.append('durationSeconds', String(durationSeconds));
 
         const response = await fetch('/api/orchestrate-band', {
@@ -236,7 +240,7 @@ export default function Home() {
             debugLog
           );
         }
-        finalMidiData = resultMidi;
+        finalMidiData = normalizeMidiDataDurations(resultMidi);
       }
 
       setMidiData(finalMidiData);
@@ -266,7 +270,7 @@ export default function Home() {
       setAppStatus('error');
       setGenStep(0);
     }
-  }, [effectiveGuitarAudio, effectiveVocalAudio, bpm, genre, musicalKey, bars, durationSeconds, useMock, prompt, selectedTracks]);
+  }, [effectiveGuitarAudio, effectiveVocalAudio, bpm, genre, musicalKey, bars, durationSeconds, useMock, prompt]);
 
   // ─── Transport handlers ───────────────────────────────────────────────────
   const handlePlay = useCallback(async () => {
@@ -290,11 +294,16 @@ export default function Home() {
     setAppStatus(midiData ? 'ready' : 'idle');
   }, [midiData]);
 
+  const handleSeek = useCallback(async (seconds: number) => {
+    const { seekPlayback } = await import('@/lib/toneEngine');
+    await seekPlayback(seconds);
+  }, []);
+
   // ─── Track control handlers ───────────────────────────────────────────────
-  const handleVolume = useCallback(async (track: TrackName, db: number) => {
+  const handleVolume = useCallback(async (track: TrackName, percent: number) => {
     const { setVolume } = await import('@/lib/toneEngine');
-    await setVolume(track, db);
-    setTrackStates(prev => ({ ...prev, [track]: { ...prev[track], volume: db } }));
+    await setVolume(track, percent);
+    setTrackStates(prev => ({ ...prev, [track]: { ...prev[track], volume: percent } }));
   }, []);
 
   const handleMute = useCallback(async (track: TrackName) => {
@@ -323,15 +332,51 @@ export default function Home() {
     });
   }, []);
 
-  // ─── Upload handler ───────────────────────────────────────────────────────
-  const handleUpload = useCallback((blob: Blob) => {
-    setUploadBlob(blob);
-  }, []);
+  const closeRecordModal = useCallback(() => {
+    countInAbortRef.current?.abort();
+    countInAbortRef.current = null;
+    setIsCountingIn(false);
+    setCountInBeat(null);
+    setShowRecordModal(false);
+    setArmedTrack(null);
+    clearRecording();
+  }, [clearRecording]);
+
+  const handleStartRecordingWithCountIn = useCallback(async () => {
+    countInAbortRef.current?.abort();
+    const abortController = new AbortController();
+    countInAbortRef.current = abortController;
+    setIsCountingIn(true);
+    setCountInBeat(1);
+
+    try {
+      const { playCountIn } = await import('@/lib/toneEngine');
+      await playCountIn(bpm, 4, (beat) => setCountInBeat(beat), abortController.signal);
+      if (abortController.signal.aborted) return;
+      setIsCountingIn(false);
+      setCountInBeat(null);
+      await startRecording();
+    } catch (err: unknown) {
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        console.error('Count-in failed:', err);
+      }
+      setIsCountingIn(false);
+      setCountInBeat(null);
+    } finally {
+      if (countInAbortRef.current === abortController) {
+        countInAbortRef.current = null;
+      }
+    }
+  }, [bpm, startRecording]);
 
   // ─── Arm-to-record handler ────────────────────────────────────────────────
   const handleArmTrack = useCallback((track: TrackName) => {
     if (armedTrack === track) {
       // Disarm
+      countInAbortRef.current?.abort();
+      setIsCountingIn(false);
+      setCountInBeat(null);
+      setShowRecordModal(false);
       setArmedTrack(null);
     } else {
       setArmedTrack(track);
@@ -340,15 +385,29 @@ export default function Home() {
   }, [armedTrack]);
 
   // When recording is accepted via the modal — store blob per-track
-  const handleAcceptRecording = useCallback(() => {
+  const handleAcceptRecording = useCallback(async () => {
     if (armedTrack && audioBlob) {
       setTrackRecordings(prev => ({ ...prev, [armedTrack]: audioBlob }));
       setTrackSources(prev => ({ ...prev, [armedTrack]: 'user' as TrackSource }));
+      if (armedTrack === 'guitar') {
+        setUploadBlob(null);
+      }
+
+      if (midiData) {
+        const { stopPlayback, loadGuitarTrack, loadVocalTrack } = await import('@/lib/toneEngine');
+        await stopPlayback();
+        setIsPlaying(false);
+        setAppStatus('ready');
+        if (armedTrack === 'guitar') await loadGuitarTrack(audioBlob);
+        if (armedTrack === 'vocal')  await loadVocalTrack(audioBlob);
+      }
     }
     setShowRecordModal(false);
     setArmedTrack(null);
+    setIsCountingIn(false);
+    setCountInBeat(null);
     clearRecording(); // Reset the recorder for next use
-  }, [armedTrack, audioBlob, clearRecording]);
+  }, [armedTrack, audioBlob, clearRecording, midiData]);
 
   // ─── Export handler ───────────────────────────────────────────────────────
   const handleExportJson = useCallback(async () => {
@@ -568,7 +627,7 @@ export default function Home() {
 
           {useMock && (
             <p className="mt-2 text-xs text-center rounded-lg bg-amber-900/30 border border-amber-600/40 text-amber-400 py-1.5">
-              ⚠ Mock Mode — no audio required, no API calls
+              ⚠ Mock Mode, no audio required, no API calls
             </p>
           )}
         </header>
@@ -591,6 +650,7 @@ export default function Home() {
               onMute={handleMute}
               onSolo={handleSolo}
               onVolume={handleVolume}
+              onSeek={handleSeek}
               onExportJson={handleExportJson}
               armedTrack={armedTrack}
               onArmTrack={handleArmTrack}
@@ -637,12 +697,14 @@ export default function Home() {
           durationSeconds={durationSeconds}
           audioUrl={audioUrl}
           analyserNode={analyserNode}
-          onStartRec={startRecording}
+          onStartRec={handleStartRecordingWithCountIn}
           onStopRec={stopRecording}
           onClearRec={clearRecording}
           onAccept={handleAcceptRecording}
-          onCancel={() => { setShowRecordModal(false); setArmedTrack(null); }}
+          onCancel={closeRecordModal}
           recError={recError}
+          isCountingIn={isCountingIn}
+          countInBeat={countInBeat}
         />
       )}
     </>

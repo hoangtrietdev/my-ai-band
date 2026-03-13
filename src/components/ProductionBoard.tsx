@@ -1,6 +1,7 @@
 import TrackStrip from './TrackStrip';
 import { MidiData, TrackName } from '@/lib/schemas';
 import { usePlayhead } from '@/hooks/usePlayhead';
+import { durationToBeats } from '@/lib/musicTimeline';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -19,7 +20,8 @@ interface ProductionBoardProps {
   onStop:      () => void;
   onMute:      (track: TrackName) => void;
   onSolo:      (track: TrackName) => void;
-  onVolume:    (track: TrackName, db: number) => void;
+  onVolume:    (track: TrackName, percent: number) => void;
+  onSeek:      (seconds: number) => void;
   onExportJson: () => void;
   /** Track that is armed for recording */
   armedTrack?: TrackName | null;
@@ -38,15 +40,6 @@ const TRACK_META: Record<TrackName, { icon: string; color: string; canRecord: bo
 };
 
 // ─── Helpers: convert MIDI data to timeline events ────────────────────────────
-
-const DURATION_MAP: Record<string, number> = {
-  '1n': 4, '2n': 2, '4n': 1, '8n': 0.5, '16n': 0.25,
-  '4n.': 1.5, '8n.': 0.75,
-};
-
-function durationToBeats(dur: string): number {
-  return DURATION_MAP[dur] ?? 1;
-}
 
 function noteToEvents(notes: { bar: number; beat: number; duration: string; syllable?: string }[]) {
   return notes.map(n => ({
@@ -70,11 +63,20 @@ export default function ProductionBoard({
   isPlaying, isReady,
   onPlay, onPause, onStop,
   onMute, onSolo, onVolume,
+  onSeek,
   onExportJson,
   armedTrack, onArmTrack,
 }: ProductionBoardProps) {
-  const playheadPct = usePlayhead();
+  const totalDurationSeconds = midiData ? (midiData.total_bars * 4 * 60) / midiData.bpm : 0;
+  const { pct: playheadPct, seconds: playheadSeconds } = usePlayhead(totalDurationSeconds);
   const totalBeats = (midiData?.total_bars ?? 4) * 4;
+
+  function formatTime(seconds: number) {
+    const safe = Math.max(0, Math.floor(seconds));
+    const mins = Math.floor(safe / 60).toString().padStart(2, '0');
+    const secs = (safe % 60).toString().padStart(2, '0');
+    return `${mins}:${secs}`;
+  }
 
   // Build track configs
   const tracks: {
@@ -160,6 +162,28 @@ export default function ProductionBoard({
             <span className="sm:hidden">⬇</span>
           </button>
         </div>
+
+        {midiData && (
+          <div className="daw-scrubber-wrap w-full">
+            <div className="daw-scrubber-gutter" aria-hidden />
+            <div className="daw-scrubber-rail">
+              <div className="daw-scrubber-time-row">
+                <span className="daw-scrubber-time">{formatTime(playheadSeconds)}</span>
+                <span className="daw-scrubber-time">{formatTime(totalDurationSeconds)}</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={Math.max(totalDurationSeconds, 1)}
+                step={0.01}
+                value={Math.min(playheadSeconds, totalDurationSeconds || 0)}
+                onChange={(e) => onSeek(Number(e.target.value))}
+                className="daw-scrubber"
+                aria-label="Seek playback"
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Track lanes — scrollable */}
@@ -181,7 +205,8 @@ export default function ProductionBoard({
               playheadPct={playheadPct}
               onMute={() => onMute(name)}
               onSolo={() => onSolo(name)}
-              onVolume={(db) => onVolume(name, db)}
+              onVolume={(percent) => onVolume(name, percent)}
+              onSeekPct={(pct) => onSeek((pct / 100) * totalDurationSeconds)}
               hasData={hasData}
               source={source}
               canRecord={meta.canRecord}

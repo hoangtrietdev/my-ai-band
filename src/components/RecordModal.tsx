@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect } from 'react';
 
 interface RecordModalProps {
   trackName:       string;
@@ -14,6 +14,8 @@ interface RecordModalProps {
   onAccept:        () => void;
   onCancel:        () => void;
   recError:        string | null;
+  isCountingIn?:   boolean;
+  countInBeat?:    number | null;
 }
 
 function fmt(s: number) {
@@ -25,47 +27,48 @@ export default function RecordModal({
   recordingState, durationSeconds, audioUrl, analyserNode,
   onStartRec, onStopRec, onClearRec, onAccept, onCancel,
   recError,
+  isCountingIn = false,
+  countInBeat = null,
 }: RecordModalProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef    = useRef<number | null>(null);
 
-  // ── Waveform visualizer ────────────────────────────────────────────────────
-  const draw = useCallback(() => {
-    const c = canvasRef.current;
-    if (!c || !analyserNode) return;
-    const ctx = c.getContext('2d');
-    if (!ctx) return;
-
-    const buf = analyserNode.frequencyBinCount;
-    const data = new Uint8Array(buf);
-    analyserNode.getByteTimeDomainData(data);
-
-    ctx.clearRect(0, 0, c.width, c.height);
-    ctx.fillStyle = '#1c1c1e';
-    ctx.fillRect(0, 0, c.width, c.height);
-
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = trackColor;
-    ctx.shadowColor = trackColor;
-    ctx.shadowBlur = 8;
-    ctx.beginPath();
-
-    const slice = c.width / buf;
-    let x = 0;
-    for (let i = 0; i < buf; i++) {
-      const v = data[i] / 128.0;
-      const y = (v * c.height) / 2;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      x += slice;
-    }
-    ctx.lineTo(c.width, c.height / 2);
-    ctx.stroke();
-    rafRef.current = requestAnimationFrame(draw);
-  }, [analyserNode, trackColor]);
-
   useEffect(() => {
     if (recordingState === 'recording' && analyserNode) {
-      draw();
+      const drawFrame = () => {
+        const c = canvasRef.current;
+        if (!c || !analyserNode) return;
+        const ctx = c.getContext('2d');
+        if (!ctx) return;
+
+        const buf = analyserNode.frequencyBinCount;
+        const data = new Uint8Array(buf);
+        analyserNode.getByteTimeDomainData(data);
+
+        ctx.clearRect(0, 0, c.width, c.height);
+        ctx.fillStyle = '#1c1c1e';
+        ctx.fillRect(0, 0, c.width, c.height);
+
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = trackColor;
+        ctx.shadowColor = trackColor;
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+
+        const slice = c.width / buf;
+        let x = 0;
+        for (let i = 0; i < buf; i++) {
+          const v = data[i] / 128.0;
+          const y = (v * c.height) / 2;
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          x += slice;
+        }
+        ctx.lineTo(c.width, c.height / 2);
+        ctx.stroke();
+        rafRef.current = requestAnimationFrame(drawFrame);
+      };
+
+      drawFrame();
     } else {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       const c = canvasRef.current;
@@ -85,10 +88,10 @@ export default function RecordModal({
       }
     }
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [recordingState, analyserNode, draw, trackColor]);
+  }, [recordingState, analyserNode, trackColor]);
 
   return (
-    <div className="record-overlay" onClick={(e) => e.target === e.currentTarget && onCancel()}>
+    <div className="record-overlay" onClick={(e) => e.target === e.currentTarget && recordingState !== 'recording' && onCancel()}>
       <div className="record-modal">
         {/* Title */}
         <div className="flex items-center gap-3 mb-4 sm:mb-6">
@@ -109,6 +112,10 @@ export default function RecordModal({
           {recordingState === 'recording' ? (
             <span className="text-xl sm:text-2xl font-mono font-bold text-red-400 animate-pulse">
               ● {fmt(durationSeconds)}
+            </span>
+          ) : isCountingIn ? (
+            <span className="text-xl sm:text-2xl font-mono font-bold text-amber-300 animate-pulse">
+              Count-in {countInBeat ?? 1}/4
             </span>
           ) : recordingState === 'stopped' ? (
             <span className="text-xl sm:text-2xl font-mono font-bold" style={{ color: trackColor }}>
@@ -135,11 +142,14 @@ export default function RecordModal({
 
         {/* Action buttons */}
         <div className="flex gap-2 sm:gap-3 justify-end flex-wrap">
-          {recordingState === 'idle' && (
+          {recordingState === 'idle' && !isCountingIn && (
             <>
               <button onClick={onCancel} className="daw-btn daw-btn-ghost text-sm">Cancel</button>
-              <button onClick={onStartRec} className="daw-btn daw-btn-danger text-sm">● Record</button>
+              <button onClick={onStartRec} className="daw-btn daw-btn-danger text-sm">● Record (4-count)</button>
             </>
+          )}
+          {recordingState === 'idle' && isCountingIn && (
+            <button onClick={onCancel} className="daw-btn daw-btn-ghost text-sm">Cancel Count-in</button>
           )}
           {recordingState === 'recording' && (
             <button onClick={onStopRec} className="daw-btn daw-btn-danger text-sm animate-pulse">

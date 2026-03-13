@@ -44,6 +44,14 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
 
   const startRecording = useCallback(async () => {
     setError(null);
+    setDuration(0);
+    setAudioBlob(null);
+    setAnalyserNode(null);
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+    setAudioUrl(null);
     chunksRef.current = [];
 
     try {
@@ -136,6 +144,8 @@ export function useAudioRecorder(): UseAudioRecorderReturn {
     setAudioUrl(null);
     setDuration(0);
     setState('idle');
+    setError(null);
+    setAnalyserNode(null);
     chunksRef.current = [];
   }, [audioUrl]);
 

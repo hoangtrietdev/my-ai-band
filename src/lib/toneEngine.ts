@@ -102,6 +102,15 @@ let _vocalPart:  any = null;
 let _swingAmount = 0;
 let _drumSamplesFailed = false;
 
+const TRACK_BASE_DB: Record<TrackName, number> = {
+  guitar: -4,
+  bass: 0,
+  drums: -2,
+  melody: -4,
+  keys: -6,
+  vocal: -3,
+};
+
 const DRUM_SAMPLE_ROOT = 'C1';
 const DRUM_SAMPLE_URLS = {
   kick: '/samples/kick.wav',
@@ -205,12 +214,12 @@ async function getSynths() {
   }
 
   // ── Volume faders → master compressor ─────────────────────────────────────
-  if (!_bassVol)   _bassVol   = new Tone.Volume(0).connect(_masterComp);
-  if (!_drumsVol)  _drumsVol  = new Tone.Volume(-2).connect(_masterComp);
-  if (!_guitarVol) _guitarVol = new Tone.Volume(-4).connect(_masterComp);
-  if (!_melodyVol) _melodyVol = new Tone.Volume(-4).connect(_masterComp);
-  if (!_keysVol)   _keysVol   = new Tone.Volume(-6).connect(_masterComp);
-  if (!_vocalVol)  _vocalVol  = new Tone.Volume(-3).connect(_masterComp);
+  if (!_bassVol)   _bassVol   = new Tone.Volume(TRACK_BASE_DB.bass).connect(_masterComp);
+  if (!_drumsVol)  _drumsVol  = new Tone.Volume(TRACK_BASE_DB.drums).connect(_masterComp);
+  if (!_guitarVol) _guitarVol = new Tone.Volume(TRACK_BASE_DB.guitar).connect(_masterComp);
+  if (!_melodyVol) _melodyVol = new Tone.Volume(TRACK_BASE_DB.melody).connect(_masterComp);
+  if (!_keysVol)   _keysVol   = new Tone.Volume(TRACK_BASE_DB.keys).connect(_masterComp);
+  if (!_vocalVol)  _vocalVol  = new Tone.Volume(TRACK_BASE_DB.vocal).connect(_masterComp);
 
   // ── Melody, Keys & Vocal send gains ───────────────────────────────────────
   if (!_melodySendRevGain) _melodySendRevGain = new Tone.Gain(0.25).connect(_sendReverb);
@@ -765,30 +774,81 @@ export async function stopPlayback(): Promise<void> {
   const Tone = await getTone();
   const transport = Tone.getTransport();
   transport.stop();
-  transport.position = 0;
-  transport.cancel();
-  transport.loop = false;
-  if (_guitarPlayer) _guitarPlayer.stop();
-  if (_vocalPlayer)  _vocalPlayer.stop();
-  // Dispose Parts so they don't accumulate on re-generate
-  if (_bassPart)   { _bassPart.dispose();   _bassPart   = null; }
-  if (_drumsPart)  { _drumsPart.dispose();  _drumsPart  = null; }
-  if (_melodyPart) { _melodyPart.dispose(); _melodyPart = null; }
-  if (_keysPart)   { _keysPart.dispose();   _keysPart   = null; }
-  if (_vocalPart)  { _vocalPart.dispose();  _vocalPart  = null; }
+  transport.seconds = 0;
+}
+
+function percentToTrackDb(track: TrackName, percent: number): number {
+  const clamped = Math.min(100, Math.max(0, percent));
+  if (clamped <= 0) return -72;
+  return TRACK_BASE_DB[track] + (20 * Math.log10(clamped / 100));
 }
 
 export async function setVolume(
   track: TrackName,
-  db: number
+  percent: number
 ): Promise<void> {
   await getSynths(); // ensure volumes are initialized
-  if (track === 'guitar' && _guitarVol) _guitarVol.volume.value = db;
-  if (track === 'bass'   && _bassVol)   _bassVol.volume.value   = db - 2;
-  if (track === 'drums'  && _drumsVol)  _drumsVol.volume.value  = db - 4;
-  if (track === 'melody' && _melodyVol) _melodyVol.volume.value = db - 6;
-  if (track === 'keys'   && _keysVol)   _keysVol.volume.value   = db - 8;
-  if (track === 'vocal'  && _vocalVol)  _vocalVol.volume.value  = db - 4;
+  const targetDb = percentToTrackDb(track, percent);
+  if (track === 'guitar' && _guitarVol) _guitarVol.volume.value = targetDb;
+  if (track === 'bass'   && _bassVol)   _bassVol.volume.value   = targetDb;
+  if (track === 'drums'  && _drumsVol)  _drumsVol.volume.value  = targetDb;
+  if (track === 'melody' && _melodyVol) _melodyVol.volume.value = targetDb;
+  if (track === 'keys'   && _keysVol)   _keysVol.volume.value   = targetDb;
+  if (track === 'vocal'  && _vocalVol)  _vocalVol.volume.value  = targetDb;
+}
+
+function getLoopDurationSeconds(Tone: ToneModule, transport: ReturnType<ToneModule['getTransport']>): number {
+  const loopEnd = transport.loopEnd;
+  if (typeof loopEnd === 'number') return loopEnd;
+  if (!loopEnd) return 0;
+  try {
+    return Tone.Time(loopEnd).toSeconds();
+  } catch {
+    return 0;
+  }
+}
+
+export async function seekPlayback(seconds: number): Promise<void> {
+  const Tone = await getTone();
+  const transport = Tone.getTransport();
+  const maxSeconds = getLoopDurationSeconds(Tone, transport);
+  const clamped = Math.min(Math.max(seconds, 0), maxSeconds || Math.max(seconds, 0));
+  transport.seconds = clamped;
+}
+
+export async function playCountIn(
+  bpm: number,
+  beats = 4,
+  onBeat?: (beatNumber: number) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const Tone = await getTone();
+  await Tone.start();
+
+  const clickSynth = new Tone.MembraneSynth({
+    pitchDecay: 0.008,
+    octaves: 2,
+    envelope: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.02 },
+  }).toDestination();
+
+  const beatMs = (60 / Math.max(1, bpm)) * 1000;
+
+  try {
+    for (let beat = 1; beat <= beats; beat++) {
+      if (signal?.aborted) throw new DOMException('Count-in aborted.', 'AbortError');
+      onBeat?.(beat);
+      clickSynth.triggerAttackRelease(beat === 1 ? 'C5' : 'G4', '16n');
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(resolve, beatMs);
+        signal?.addEventListener('abort', () => {
+          window.clearTimeout(timeout);
+          reject(new DOMException('Count-in aborted.', 'AbortError'));
+        }, { once: true });
+      });
+    }
+  } finally {
+    clickSynth.dispose();
+  }
 }
 
 /**
