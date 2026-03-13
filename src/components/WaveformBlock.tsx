@@ -13,6 +13,8 @@ interface WaveformBlockProps {
   hasData: boolean;
   /** Source — affects styling */
   source: 'user' | 'ai' | 'empty';
+  onArm?: () => void;
+  canRecord?: boolean;
 }
 
 /**
@@ -21,7 +23,14 @@ interface WaveformBlockProps {
  * - Shows note blocks with a subtle beat grid.
  */
 export default function WaveformBlock({
-  events, color, totalBeats, playheadPct, hasData, source,
+  events,
+  color,
+  totalBeats,
+  playheadPct,
+  hasData,
+  source,
+  canRecord = false,
+  onArm,
 }: WaveformBlockProps) {
   const HEIGHT = 38;
   const NOTE_H = 18;
@@ -34,7 +43,8 @@ export default function WaveformBlock({
     const steps = 80;
     for (let i = 0; i <= steps; i++) {
       const x = (i / steps) * totalBeats * 20;
-      const amp = (Math.sin(i * 0.45) * 0.3 + Math.sin(i * 1.2) * 0.2 + Math.sin(i * 2.8) * 0.15 + 0.5);
+      const amp =
+        Math.sin(i * 0.45) * 0.3 + Math.sin(i * 1.2) * 0.2 + Math.sin(i * 2.8) * 0.15 + 0.5;
       const y = HEIGHT / 2 - amp * (NOTE_H * 0.8);
       points.push(`${x},${y}`);
     }
@@ -42,7 +52,8 @@ export default function WaveformBlock({
     const bottomPoints: string[] = [];
     for (let i = steps; i >= 0; i--) {
       const x = (i / steps) * totalBeats * 20;
-      const amp = (Math.sin(i * 0.45) * 0.3 + Math.sin(i * 1.2) * 0.2 + Math.sin(i * 2.8) * 0.15 + 0.5);
+      const amp =
+        Math.sin(i * 0.45) * 0.3 + Math.sin(i * 1.2) * 0.2 + Math.sin(i * 2.8) * 0.15 + 0.5;
       const y = HEIGHT / 2 + amp * (NOTE_H * 0.8);
       bottomPoints.push(`${x},${y}`);
     }
@@ -53,7 +64,13 @@ export default function WaveformBlock({
     return (
       <div className="waveform-block waveform-block-empty flex items-center justify-center">
         <span className="text-xs text-muted-foreground opacity-50">
-          {source === 'user' ? 'Tap ● to record' : 'Waiting for AI'}
+          {canRecord ? (
+            <span onClick={onArm} className="cursor-pointer">
+              Tap ● to record
+            </span>
+          ) : (
+            <span>Waiting for AI</span>
+          )}
         </span>
       </div>
     );
@@ -62,7 +79,10 @@ export default function WaveformBlock({
   const svgWidth = totalBeats * 20;
 
   return (
-    <div className="waveform-block waveform-block-filled animate-cascade" style={{ background: `${color}22` }}>
+    <div
+      className="waveform-block waveform-block-filled animate-cascade"
+      style={{ background: `${color}22` }}
+    >
       <svg
         viewBox={`0 0 ${svgWidth} ${HEIGHT}`}
         className="w-full h-full"
@@ -72,7 +92,10 @@ export default function WaveformBlock({
         {Array.from({ length: totalBeats }, (_, i) => (
           <line
             key={`g-${i}`}
-            x1={i * 20} y1={0} x2={i * 20} y2={HEIGHT}
+            x1={i * 20}
+            y1={0}
+            x2={i * 20}
+            y2={HEIGHT}
             stroke={color}
             strokeWidth={i % 4 === 0 ? 0.8 : 0.3}
             opacity={0.15}
@@ -80,25 +103,26 @@ export default function WaveformBlock({
         ))}
 
         {/* User waveform polygon */}
-        {fakeWaveform && (
-          <polygon points={fakeWaveform} fill={color} opacity={0.6} />
-        )}
+        {fakeWaveform && <polygon points={fakeWaveform} fill={color} opacity={0.6} />}
 
         {/* MIDI note blocks */}
-        {source !== 'user' && events.map((ev, i) => {
-          const x = ev.startBeat * 20;
-          const w = Math.max(ev.durationBeats * 20 - 1.5, 3);
-          return (
-            <rect
-              key={i}
-              x={x} y={NOTE_Y}
-              width={w} height={NOTE_H}
-              fill={color}
-              opacity={0.75}
-              rx={3}
-            />
-          );
-        })}
+        {source !== 'user' &&
+          events.map((ev, i) => {
+            const x = ev.startBeat * 20;
+            const w = Math.max(ev.durationBeats * 20 - 1.5, 3);
+            return (
+              <rect
+                key={i}
+                x={x}
+                y={NOTE_Y}
+                width={w}
+                height={NOTE_H}
+                fill={color}
+                opacity={0.75}
+                rx={3}
+              />
+            );
+          })}
 
         {/* Playhead */}
         <line

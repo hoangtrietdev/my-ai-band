@@ -77,7 +77,7 @@ export default function AgentTerminal({ logs, active, isLoading, error }: AgentT
         <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 opacity-80" />
         <span className="w-2.5 h-2.5 rounded-full bg-green-500 opacity-80" />
         <span className="ml-3 text-xs text-muted-foreground font-mono tracking-wider">
-          Agent Log
+          See the magic happen
         </span>
       </div>
 

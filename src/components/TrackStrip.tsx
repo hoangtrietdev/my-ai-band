@@ -97,6 +97,8 @@ export default function TrackStrip({
         playheadPct={playheadPct}
         hasData={hasData}
         source={source}
+        canRecord={canRecord}
+        onArm={onArm}
       />
     </div>
   );

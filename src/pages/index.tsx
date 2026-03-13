@@ -378,7 +378,7 @@ export default function Home() {
   return (
     <>
       <Head>
-        <title>Virtual AI Band</title>
+        <title>My AI Band</title>
         <meta name="description" content="AI-powered virtual band — multi-modal music production with AI" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -417,12 +417,12 @@ export default function Home() {
                 <rect x="50" y="34" width="4" height="10" rx="2" fill="url(#logo-wave)" opacity="0.9"/>
               </svg>
               <h1 className="font-head text-base sm:text-lg font-extrabold tracking-tight">
-                Virtual AI Band
+                My AI Band
               </h1>
               <span className="text-xs text-muted-foreground hidden sm:inline">
                 {process.env.NEXT_PUBLIC_IS_GROQ === 'true'
-                  ? 'Groq · llama-3.3-70b'
-                  : 'DigitalOcean Gradient'}
+                  ? 'Power by Groq · llama-3.3-70b'
+                  : 'Power by DigitalOcean Gradient'}
               </span>
             </div>
 
@@ -453,13 +453,13 @@ export default function Home() {
           {/* Band Prompt bar + session params */}
           <div className="flex flex-col gap-3">
             {/* Prompt textarea — the star */}
-            <div className="w-full">
-              <label className="text-[13px] font-semibold text-muted-foreground mb-1.5 block tracking-wide uppercase">Band Prompt</label>
+            <div className="w-full daw-prompt-wrap">
+              <label className="daw-control-label">Band Prompt</label>
               <textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && !isProcessing && (e.preventDefault(), handleGenerate())}
-                placeholder="Describe the music you want — e.g. 'chill lo-fi beat with jazzy piano chords'..."
+                placeholder="Describe the music you want e.g. 'chill lo-fi beat with jazzy piano chords'..."
                 className="daw-textarea w-full"
                 rows={2}
                 disabled={isProcessing}
@@ -467,10 +467,10 @@ export default function Home() {
             </div>
 
             {/* Session param controls + Generate */}
-            <div className="flex gap-3 items-end flex-wrap w-full">
+            <div className="flex gap-3 items-end flex-wrap w-full daw-control-strip">
               {/* BPM */}
-              <div className="w-27.5 sm:w-30">
-                <label className="text-[11px] font-semibold text-muted-foreground mb-1.5 block tracking-wider uppercase">BPM</label>
+              <div className="w-27.5 sm:w-30 daw-control-group">
+                <label className="daw-control-label">BPM</label>
                 <div className="daw-stepper">
                   <button
                     type="button"
@@ -496,24 +496,24 @@ export default function Home() {
               </div>
 
               {/* Genre */}
-              <div className="w-30 sm:w-35">
-                <label className="text-[11px] font-semibold text-muted-foreground mb-1.5 block tracking-wider uppercase">Genre</label>
+              <div className="w-30 sm:w-35 daw-control-group">
+                <label className="daw-control-label">Genre</label>
                 <select value={genre} onChange={(e) => setGenre(e.target.value)} className="daw-select">
                   {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
                 </select>
               </div>
 
               {/* Key */}
-              <div className="w-30 sm:w-35">
-                <label className="text-[11px] font-semibold text-muted-foreground mb-1.5 block tracking-wider uppercase">Key</label>
+              <div className="w-30 sm:w-35 daw-control-group">
+                <label className="daw-control-label">Key</label>
                 <select value={musicalKey} onChange={(e) => setMusicalKey(e.target.value)} className="daw-select">
                   {KEYS.map(k => <option key={k} value={k}>{k}</option>)}
                 </select>
               </div>
 
               {/* Bars */}
-              <div className="w-25 sm:w-27.5">
-                <label className="text-[11px] font-semibold text-muted-foreground mb-1.5 block tracking-wider uppercase">Bars</label>
+              <div className="w-25 sm:w-27.5 daw-control-group">
+                <label className="daw-control-label">Bars</label>
                 <div className="daw-stepper">
                   <button
                     type="button"
@@ -542,7 +542,7 @@ export default function Home() {
               <button
                 onClick={handleGenerate}
                 disabled={isProcessing || recordingState === 'recording'}
-                className="daw-btn daw-btn-gradient h-9.5 px-5 sm:px-7 text-[13px] whitespace-nowrap flex-1 sm:flex-none min-w-fit rounded-[10px]"
+                className="daw-btn daw-btn-gradient daw-generate-btn h-9.5 px-5 sm:px-7 text-[13px] whitespace-nowrap flex-1 sm:flex-none min-w-fit rounded-[10px]"
               >
                 {isProcessing
                   ? <span className="animate-pulse">⏳ Generating...</span>

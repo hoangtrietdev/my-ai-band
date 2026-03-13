@@ -1,4 +1,4 @@
-# Virtual AI Band — Project Plan
+# My AI Band — Project Plan
 
 > **Hackathon Project** | Next.js · Groq / DigitalOcean Gradient · Web Audio API · Tone.js  
 > **Status:** Phase 5 — Enhanced Input Modes & Full Production Board  
@@ -22,7 +22,7 @@
 
 ## 1. Project Overview
 
-**Virtual AI Band** is a browser-native music production application. Users provide creative input — a **demo recording**, **lyrics**, or a **text description** — and AI agents compose a full multi-track arrangement. The output is rendered through a **GarageBand-style production board** where each instrument track (melody, bass, drums, keys, vocals) can be independently soloed, muted, and mixed.
+**My AI Band** is a browser-native music production application. Users provide creative input — a **demo recording**, **lyrics**, or a **text description** — and AI agents compose a full multi-track arrangement. The output is rendered through a **GarageBand-style production board** where each instrument track (melody, bass, drums, keys, vocals) can be independently soloed, muted, and mixed.
 
 ### What's Already Built (Phases 1–4)
 

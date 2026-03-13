@@ -842,7 +842,7 @@ export function generateMockResponse(params: MockParams): BandOutput {
   const genreScaleLabel = genre === 'blues' ? 'blues' : genre === 'rock' ? 'pentatonic' : quality;
 
   const logs: string[] = [
-    '[Producer] Initializing Virtual AI Band session...',
+    '[Producer] Initializing My AI Band session...',
     `[Producer] Analyzing musical context: ${bpm} BPM | ${genre.toUpperCase()} | ${keyLabel} | ${bars} bars`,
     `[Producer] Scale: ${getGenreScale(root, quality, genre).join(' ')} (${genreScaleLabel})`,
     `[Producer] Harmonic strategy: ${pick(GENRE_BASS_DESC[genre] ?? GENRE_BASS_DESC.pop)} + ${pick(GENRE_DRUM_DESC[genre] ?? GENRE_DRUM_DESC.pop)}.`,

@@ -1,4 +1,4 @@
-# 🎵 Virtual AI Band
+# 🎵 My AI Band
 
 A **GarageBand-inspired AI music production studio** built for hackathons. Describe the music you want in plain English and the AI band generates bass, drums, melody, keys, and vocal tracks — fully playable in the browser with Tone.js.
 
